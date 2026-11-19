@@ -1,0 +1,31 @@
+name: 🐞 버그 신고 (Bug report)
+description: 잘못 동작하는 것을 알려 주세요
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: 실제 학교·교사·학생 정보는 적지 마세요. 지어낸 이름으로 바꿔 주세요.
+  - type: textarea
+    id: what
+    attributes:
+      label: 무슨 일이 생겼나요?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 재현 방법
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대한 동작
+  - type: input
+    id: env
+    attributes:
+      label: 환경
+      description: 브라우저·OS·실행 방식(Docker 등)·버전

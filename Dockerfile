@@ -1,0 +1,20 @@
+FROM node:22-slim AS web
+WORKDIR /web
+COPY web/package*.json ./
+RUN npm ci --no-audit --no-fund
+COPY shared /shared
+COPY web/ ./
+RUN npm run build
+
+FROM node:22-slim
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package*.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
+COPY server ./server
+COPY shared ./shared
+COPY scripts ./scripts
+COPY --from=web /web/dist ./web/dist
+USER node
+EXPOSE 3000
+CMD ["npm", "start"]

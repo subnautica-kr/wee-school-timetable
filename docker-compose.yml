@@ -1,0 +1,36 @@
+# 사용: cp .env.example .env 후 값을 채우고  docker compose up -d --build
+name: ${COMPOSE_PROJECT_NAME:-wee-school-timetable}
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: timetable
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?.env 에 DB_PASSWORD 가 필요}
+      POSTGRES_DB: timetable
+    volumes: [dbdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U timetable"]
+      interval: 3s
+      retries: 20
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://timetable:${DB_PASSWORD}@db:5432/timetable
+      SESSION_SECRET: ${SESSION_SECRET:?.env 에 SESSION_SECRET 이 필요}
+      DATA_KEY: ${DATA_KEY:?.env 에 DATA_KEY 가 필요}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      PORT: "3000"
+    ports: ["${BIND:-127.0.0.1}:${APP_PORT:-3000}:3000"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+volumes:
+  dbdata:
