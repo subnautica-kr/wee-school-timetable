@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Group, NumberInput, Switch, SegmentedControl, SimpleGrid, Stack, TagsInput, Text, TextInput, Title } from '@mantine/core';
 import { api } from '../api.js';
 import { DEFAULTS, configPath, mergeConfig } from '../orgConfig.js';
+import DangerZone from './DangerZone.jsx';
 import { SUB_GRADES } from '../../../shared/sub-grades.js';
 
 const LIMIT_LABELS = {
@@ -66,6 +67,7 @@ export default function OrgConfig({ P }) {
       </SimpleGrid>
       <NumberInput label="월 근태 한도(비우면 없음)" min={0} value={c.attendanceMonthlyCap ?? ''} onChange={(v) => set('attendanceMonthlyCap', v === '' ? null : Number(v))} w={220} />
       <Group><Button onClick={save}>저장</Button><Button variant="default" onClick={() => setC(DEFAULTS)}>기본값으로 채우기</Button></Group>
+      <DangerZone P={P} />
     </Stack>
   );
 }

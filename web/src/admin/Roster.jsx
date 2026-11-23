@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Badge, Button, Code, FileButton, Group, Modal, Paper, Select, Stack, Table, Text, TextInput, Title } from '@mantine/core';
 import { api } from '../api.js';
 import { downloadTemp } from './csv.js';
+import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 import { dutyOptions, roleLabel, useOrgConfig } from '../orgConfig.js';
 
 const ROLES = ['기관관리자', '교직원', '보기만'];
@@ -28,6 +29,7 @@ export default function Roster({ orgId }) {
   };
   useEffect(() => { load(); }, [orgId]);
   const hv = homeroomView(rows, classes);
+  const [del, delBox] = useDelete();
   const run = async (fn) => {
     setErr('');
     try { await fn(); await load(); } catch (e) { setErr(e.message); }
@@ -93,6 +95,9 @@ export default function Roster({ orgId }) {
       <Button size="xs" variant="default" onClick={() => post(m, 'reset-password')}>초기화</Button>
       {m.state === '잠김' ? <Button size="xs" variant="default" onClick={() => post(m, 'unlock')}>잠금 해제</Button> : <Button size="xs" variant="default" onClick={() => post(m, 'lock')}>잠금</Button>}
       <Button size="xs" variant="subtle" onClick={() => patch(m, { hidden: m.listStatus !== '숨김' })}>{m.listStatus === '숨김' ? '숨김 해제' : '숨김'}</Button>
+      <Button size="xs" variant="subtle" color="red" onClick={() => del(cascadeOpts(`/orgs/${orgId}`, 'membership', m.id, m.name, `${base}/${m.id}`, {
+        title: `「${m.name}」 이 학교에서 빼기`, yes: '이 학교에서 빼기', onDone: load,
+        lead: '이 학교의 명단에서만 뺍니다. 계정은 남아 있어 다른 학교에도 속해 있다면 그쪽은 그대로입니다. 시수표·시간표에 적힌 이 선생님 자리는 비워지고(줄과 칸은 남음), 담임 지정도 풀립니다.' }))}>이 학교에서 빼기</Button>
     </Group>
   );
   const roleSel = (m) => <Select data={roleData} value={m.role} onChange={(v) => v && patch(m, { role: v })} allowDeselect={false} size="xs" w={120} />;
@@ -100,6 +105,7 @@ export default function Roster({ orgId }) {
 
   return (
     <Stack>
+      {delBox}
       <Title order={4}>명단 ({rows.length}명)</Title>
       {err && <Alert color="red">{err}</Alert>}
       <form onSubmit={add}>

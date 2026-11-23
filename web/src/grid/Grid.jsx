@@ -3,6 +3,7 @@ import { Alert, Badge, Button, Card, Group, Modal, NumberInput, Select, Stack, T
 import { api } from '../api.js';
 import { useOrgConfig } from '../orgConfig.js';
 import { useConfirm } from '../Confirm.jsx';
+import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 import { todayStr } from '../today.js';
 import { featureOn } from '../features.js';
 import { EmptyHint, Finger } from './Guide.jsx';
@@ -95,6 +96,7 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
   const DAYS = cfg.weekdays; // 요일은 기관 설정 한 곳(서버 config.weekdays)
   const roomsOn = featureOn(cfg.features, 'rooms');
   const [ask, confirmBox] = useConfirm();
+  const [del, delBox] = useDelete();
   const [day, setDay] = useState(() => todayDay(DAYS.length));
   useEffect(() => { if (cfg.loaded) setDay(todayDay(cfg.weekdays.length)); }, [cfg.loaded]); // 기관 요일을 받은 뒤 한 번 다시 맞춘다 // 폰에서 보이는 요일(1~요일 수)
   const [tx, setTx] = useState(null);
@@ -184,10 +186,8 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
     if (!(await ask('확정을 풀고 시안으로 돌릴까요?', { yes: '확정 풀기' }))) return;
     await api('POST', `${P}/timetables/${tid}/unconfirm`); setMsg(null); await load(); onChanged();
   });
-  const deleteTt = () => run(async () => {
-    if (!(await ask(`「${d.timetable.name}」을 지울까요?${d.timetable.status === '확정' ? ' 확정된 시간표입니다.' : ''}`, { yes: '지우기' }))) return;
-    await api('DELETE', `${P}/timetables/${tid}`); onDeleted();
-  });
+  const deleteTt = () => del(cascadeOpts(P, 'timetable', tid, d.timetable.name, `${P}/timetables/${tid}`, {
+    lead: `이 시간표(${d.timetable.status})를 지웁니다.${d.timetable.status === '확정' ? ' 확정된 시간표라 교직원 화면에서도 사라집니다.' : ''}`, onDone: onDeleted }));
   const clashNote = sel ? clashText(
     teacherClashes(d.cells, { classroom_id: cls.id, weekday: sel.weekday, period: sel.period, membership_id: num(form.membership_id), second_membership_id: num(form.second_membership_id) }),
     (id) => name(d.teachers, id)?.name,
@@ -224,7 +224,7 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
 
   return (
     <Stack>
-      {confirmBox}
+      {confirmBox}{delBox}
       {error && <Alert color="red">{error}</Alert>}
       <Group className="no-print" justify="space-between">
         <Select label="반" data={d.classrooms.map((c) => ({ value: String(c.id), label: `${c.grade}학년 ${c.class_no}반` }))} value={String(cls.id)} onChange={(v) => setClassId(v)} allowDeselect={false} w={150} />

@@ -11,6 +11,7 @@ import Term from '../Term.jsx';
 import { SCHOOL_TAB_FEATURE, visibleTabs } from '../features.js';
 import { MenuIntro } from '../grid/Guide.jsx';
 import { useConfirm } from '../Confirm.jsx';
+import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 import LoadUpload from './LoadUpload.jsx';
 
 function useLoad(path) {
@@ -108,8 +109,10 @@ function Subjects({ P, admin }) {
   const shown = (rows || []).filter((s) => !s.hidden);
   const hidden = (rows || []).filter((s) => s.hidden);
   const patch = (s, body) => run(() => api('PATCH', `${P}/subjects/${s.id}`, body))();
+  const [del, delBox] = useDelete();
   return (
     <Stack>
+      {delBox}
       <Err e={error} />
       <Text fw={600}>교과 ({shown.length})</Text>
       {!admin && <Text size="sm">{shown.map((s) => s.name).join(' · ')}</Text>}
@@ -119,7 +122,7 @@ function Subjects({ P, admin }) {
             <Table.Tr key={s.id}>
               <Table.Td><TextInput defaultValue={s.name} onBlur={(e) => e.currentTarget.value.trim() && e.currentTarget.value !== s.name && patch(s, { name: e.currentTarget.value })} w={{ base: 140, sm: 190 }} /></Table.Td>
               <Table.Td><TextInput defaultValue={s.short_name ?? ''} placeholder="줄임말" onBlur={(e) => e.currentTarget.value !== (s.short_name ?? '') && patch(s, { short_name: e.currentTarget.value })} w={80} /></Table.Td>
-              <Table.Td><Button size="xs" variant="default" onClick={() => patch(s, { hidden: true })}>숨김</Button></Table.Td>
+              <Table.Td><Group gap={4} wrap="nowrap"><Button size="xs" variant="default" onClick={() => patch(s, { hidden: true })}>숨김</Button><Button size="xs" variant="subtle" color="red" onClick={() => del(cascadeOpts(P, 'subject', s.id, s.name, `${P}/subjects/${s.id}`, { lead: '이 교과를 목록에서 없앱니다. 숨김과 달리 시수표·시간표에서도 빠집니다.', onDone: reload }))}>지우기</Button></Group></Table.Td>
             </Table.Tr>
           ))}
         </Table.Tbody></Table></Table.ScrollContainer>
@@ -191,6 +194,7 @@ function Semester({ P, admin, term, classes, onDone }) {
 function ClassTable({ P, admin, classes, reload, setError }) {
   const [people] = useLoad(`${P}/specialists`);
   const [ask, box] = useConfirm();
+  const [del, delBox] = useDelete();
   const list = classes || [];
   const nameOf = (mid) => (people || []).find((x) => x.membership_id === mid)?.name;
   const data = [
@@ -216,7 +220,7 @@ function ClassTable({ P, admin, classes, reload, setError }) {
   };
   return (
     <Stack gap="xs">
-      {box}
+      {box}{delBox}
       {dup.map(([mid, v]) => <Alert key={mid} color="yellow">{nameOf(Number(mid)) ?? '한 분'} 선생님이 {v.join('·')} 두 반 이상의 담임입니다(막지는 않습니다).</Alert>)}
       {list.length === 0 ? <Text size="sm">아직 없음</Text> : (
         <Table w="auto"><Table.Tbody>
@@ -224,6 +228,7 @@ function ClassTable({ P, admin, classes, reload, setError }) {
             <Table.Tr key={c.id}>
               <Table.Td>{c.grade}-{c.class_no}</Table.Td>
               <Table.Td><Select aria-label={`${c.grade}-${c.class_no} 담임`} placeholder="담임 없음" clearable searchable disabled={!admin} data={data} value={c.homeroom_membership_id ? String(c.homeroom_membership_id) : null} onChange={(v) => pick(c, v)} w={200} /></Table.Td>
+              {admin && <Table.Td><Button size="xs" variant="subtle" color="red" onClick={() => del(cascadeOpts(P, 'classroom', c.id, `${c.grade}-${c.class_no}반`, `${P}/classrooms/${c.id}`, { lead: '이 반을 없앱니다. 이 반의 시수표 줄과 시간표 칸도 함께 사라집니다.', onDone: reload }))}>지우기</Button></Table.Td>}
             </Table.Tr>
           ))}
         </Table.Tbody></Table>
@@ -238,6 +243,7 @@ function Basics({ P, admin }) {
   const [classes, reloadC] = useLoad(`${P}/classrooms`);
   const [cfg, reloadCfg] = useLoad(`${P}/school/periods`);
   const [rooms, reloadR] = useLoad(`${P}/special-rooms`);
+  const [del, delBox] = useDelete();
   const [grade, setGrade] = useState(1);
   const [count, setCount] = useState(3);
   const [room, setRoom] = useState({ name: '', purpose: '수업용' });
@@ -279,7 +285,8 @@ function Basics({ P, admin }) {
       <Text size="sm" c="dimmed">전 학년 공통입니다. 적어 두면 학년마다 점심 자리가 달라도 교사·특별실 겹침을 시각으로 셉니다. 비우면 교시 번호로 셉니다. 09:00 꼴로 적습니다.</Text>
       <TimesTable key={cfg ? 'ready' : 'wait'} n={maxP} times={cfg?.times} disabled={!admin} onSave={(t) => run(() => saveTimes(t))()} />
       <Text fw={600}>특별실</Text>
-      {(rooms || []).map((r) => <Text key={r.id} size="sm">{r.name} <Badge variant="light">{r.purpose}</Badge> {r.capacity ? `정원 ${r.capacity}` : ''}</Text>)}
+      {delBox}
+      {(rooms || []).map((r) => <Group key={r.id} gap="xs"><Text size="sm">{r.name} <Badge variant="light">{r.purpose}</Badge> {r.capacity ? `정원 ${r.capacity}` : ''}</Text>{admin && <Button size="compact-xs" variant="subtle" color="red" onClick={() => del(cascadeOpts(P, 'special_room', r.id, r.name, `${P}/special-rooms/${r.id}`, { lead: '이 특별실을 없앱니다. 시수표·시간표 칸에서는 특별실만 비고, 오늘부터의 예약은 함께 사라집니다.', onDone: reloadR }))}>지우기</Button>}</Group>)}
       {admin && (
         <Group>
           <TextInput placeholder="이름" value={room.name} onChange={(e) => setRoom({ ...room, name: e.currentTarget.value })} />
