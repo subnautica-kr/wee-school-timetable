@@ -8,6 +8,7 @@ import { currentTerm, scopeTermId, ensureDefaultSubjects } from './school.js';
 import { CEIL, limitWarnings, loadConfig, withWarnings } from '../orgConfig.js';
 import { audit } from '../audit.js';
 import { generateRouter } from './generate.js';
+import { teacherSql } from '../../shared/cellTeachers.js';
 
 // 시간표(시안) 만들기 · 칸 저장 · 내 시간표. 겹침은 거부하지 않고 목록으로 저장한다.
 const id = z.coerce.number().int().positive();
@@ -19,11 +20,12 @@ const cellIn = z.object({
   period: z.number().int().min(1).max(CEIL.periods),
   subject_id: ref,
   membership_id: ref,
+  second_membership_id: ref, // 둘째 교사(선택) — 안 보내면 칸의 둘째 교사를 그대로 둔다 · null 이면 뗀다
   special_room_id: ref,
 });
-// 칸 하나 저장 — 세 값이 모두 비면 칸을 비운다. db 는 pool 이거나 트랜잭션 중인 client.
+// 칸 하나 저장 — 값이 모두 비면 칸을 비운다. db 는 pool 이거나 트랜잭션 중인 client.
 async function saveCell(db, orgId, ttId, d) {
-  const empty = !d.subject_id && !d.membership_id && !d.special_room_id;
+  const empty = !d.subject_id && !d.membership_id && !d.special_room_id && !d.second_membership_id;
   const where = `org_id = $1 AND timetable_id = $2 AND classroom_id = $3 AND weekday = $4 AND period = $5 AND deleted_at IS NULL`;
   const key = [orgId, ttId, d.classroom_id, d.weekday, d.period];
   if (empty) {
@@ -31,21 +33,25 @@ async function saveCell(db, orgId, ttId, d) {
     return;
   }
   const v = [d.subject_id ?? null, d.membership_id ?? null, d.special_room_id ?? null];
-  const up = await db.query(`UPDATE cell SET subject_id = $6, membership_id = $7, special_room_id = $8 WHERE ${where}`, [...key, ...v]);
+  const keep2 = d.second_membership_id === undefined;
+  const up = keep2
+    ? await db.query(`UPDATE cell SET subject_id = $6, membership_id = $7, special_room_id = $8 WHERE ${where}`, [...key, ...v])
+    : await db.query(`UPDATE cell SET subject_id = $6, membership_id = $7, special_room_id = $8, second_membership_id = $9 WHERE ${where}`, [...key, ...v, d.second_membership_id]);
   if (!up.rowCount) {
     await db.query(
-      `INSERT INTO cell (org_id, timetable_id, classroom_id, weekday, period, subject_id, membership_id, special_room_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [...key, ...v],
+      `INSERT INTO cell (org_id, timetable_id, classroom_id, weekday, period, subject_id, membership_id, special_room_id, second_membership_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [...key, ...v, d.second_membership_id ?? null],
     );
   }
 }
 const slotIn = z.object({ classroom_id: z.coerce.number().int().positive(), weekday: z.number().int().min(1).max(7), period: z.number().int().min(1).max(CEIL.periods) });
 const swapIn = z.object({ from: slotIn, to: slotIn });
-const CELL_COLS = 'classroom_id, weekday, period, subject_id, membership_id, special_room_id';
+const CELL_COLS = 'classroom_id, weekday, period, subject_id, membership_id, second_membership_id, special_room_id';
 const REFS = {
   classroom_id: `SELECT 1 FROM classroom WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`,
   subject_id: `SELECT 1 FROM subject WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`,
   membership_id: `SELECT 1 FROM membership WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`,
+  second_membership_id: `SELECT 1 FROM membership WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`,
   special_room_id: `SELECT 1 FROM special_room WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`,
 };
 
@@ -68,10 +74,11 @@ export function timetablesRouter(pool) {
   async function mineOf(req, tt) {
     const me = await myMembership(req);
     return (await pool.query(
-      `SELECT c.weekday, c.period, c.classroom_id, cl.grade, cl.class_no, s.name AS subject, sr.name AS room
+      `SELECT c.weekday, c.period, c.classroom_id, cl.grade, cl.class_no, s.name AS subject, sr.name AS room,
+              (c.membership_id IS DISTINCT FROM $3) AS second
          FROM cell c JOIN classroom cl ON cl.id = c.classroom_id
          LEFT JOIN subject s ON s.id = c.subject_id LEFT JOIN special_room sr ON sr.id = c.special_room_id
-        WHERE c.org_id = $1 AND c.timetable_id = $2 AND c.membership_id = $3 AND c.deleted_at IS NULL ORDER BY c.weekday, c.period`,
+        WHERE c.org_id = $1 AND c.timetable_id = $2 AND ${teacherSql('c', '$3::bigint')} AND c.deleted_at IS NULL ORDER BY c.weekday, c.period`,
       [req.orgId, tt.id, me?.id ?? -1],
     )).rows;
   }
@@ -183,14 +190,14 @@ export function timetablesRouter(pool) {
         await db.query('BEGIN');
         const read = async (x) =>
           (await db.query(
-            `SELECT subject_id, membership_id, special_room_id FROM cell
+            `SELECT subject_id, membership_id, second_membership_id, special_room_id FROM cell
               WHERE org_id = $1 AND timetable_id = $2 AND classroom_id = $3 AND weekday = $4 AND period = $5 AND deleted_at IS NULL FOR UPDATE`,
             [req.orgId, tt.id, x.classroom_id, x.weekday, x.period],
           )).rows[0] ?? {};
         const a = await read(from);
         const b = await read(to);
-        await saveCell(db, req.orgId, tt.id, { ...to, subject_id: a.subject_id, membership_id: a.membership_id, special_room_id: a.special_room_id });
-        await saveCell(db, req.orgId, tt.id, { ...from, subject_id: b.subject_id, membership_id: b.membership_id, special_room_id: b.special_room_id });
+        await saveCell(db, req.orgId, tt.id, { ...to, subject_id: a.subject_id, membership_id: a.membership_id, second_membership_id: a.second_membership_id ?? null, special_room_id: a.special_room_id });
+        await saveCell(db, req.orgId, tt.id, { ...from, subject_id: b.subject_id, membership_id: b.membership_id, second_membership_id: b.second_membership_id ?? null, special_room_id: b.special_room_id });
         await db.query('COMMIT');
       } catch (e) {
         await db.query('ROLLBACK').catch(() => {});

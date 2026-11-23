@@ -8,6 +8,7 @@ import { rankCandidates, fairness, REASONS } from '../candidates.js';
 import { currentTerm } from './school.js';
 import { CEIL, limitWarnings, loadConfig, withWarnings } from '../orgConfig.js';
 import { appliedTimetable } from '../applied.js';
+import { teacherSql } from '../../shared/cellTeachers.js';
 
 // 보결: 올리기 · 후보(A~D·제외 사유) · 맡기(먼저 누른 한 명) · 형평성 · 관리자 강제 지정·해제.
 // 후보 밖 사람이 맡아도 거부하지 않고 경고 목록으로 돌려준다(업무 규칙은 알림·경고).
@@ -66,7 +67,7 @@ export function substituteRouter(pool, opts = {}) {
     const tt = await activeTimetable(orgId, s.on_date);
     const weekday = weekdayOf(s.on_date);
     const N = (v) => (v == null ? v : Number(v));
-    const cells = tt ? (await pool.query(`SELECT classroom_id, weekday, period, subject_id, membership_id FROM cell WHERE org_id = $1 AND timetable_id = $2 AND deleted_at IS NULL`, [orgId, tt.id])).rows.map((c) => ({ ...c, classroom_id: N(c.classroom_id), membership_id: N(c.membership_id) })) : [];
+    const cells = tt ? (await pool.query(`SELECT classroom_id, weekday, period, subject_id, membership_id, second_membership_id FROM cell WHERE org_id = $1 AND timetable_id = $2 AND deleted_at IS NULL`, [orgId, tt.id])).rows.map((c) => ({ ...c, classroom_id: N(c.classroom_id), membership_id: N(c.membership_id), second_membership_id: c.second_membership_id == null ? null : N(c.second_membership_id) })) : [];
     const members = (await pool.query(
       `SELECT m.id, u.name, m.duty, (SELECT json_build_object('id', c.id, 'grade', c.grade) FROM classroom c WHERE c.homeroom_membership_id = m.id AND c.deleted_at IS NULL LIMIT 1) AS homeroom
        FROM membership m JOIN app_user u ON u.id = m.user_id
@@ -138,7 +139,7 @@ export function substituteRouter(pool, opts = {}) {
       if (d.all_day) {
         const tt = await activeTimetable(req.orgId, d.on_date);
         items = tt ? (await pool.query(
-          `SELECT period, classroom_id FROM cell WHERE org_id = $1 AND timetable_id = $2 AND membership_id = $3 AND weekday = $4 AND deleted_at IS NULL ORDER BY period`,
+          `SELECT period, classroom_id FROM cell c WHERE org_id = $1 AND timetable_id = $2 AND ${teacherSql('c', '$3')} AND weekday = $4 AND deleted_at IS NULL ORDER BY period`,
           [req.orgId, tt.id, absent, weekdayOf(d.on_date)])).rows : [];
       }
       if (!items.length) return res.status(400).json({ error: NO_PERIODS });

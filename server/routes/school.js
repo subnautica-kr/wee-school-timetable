@@ -140,8 +140,8 @@ export function schoolRouter(pool) {
         `INSERT INTO classroom (org_id, term_id, grade, class_no, homeroom_membership_id, student_count)
          SELECT org_id, $2, grade, class_no, homeroom_membership_id, student_count FROM classroom WHERE org_id = $1 AND term_id = $3 AND deleted_at IS NULL RETURNING id`, [req.orgId, cur.id, prev.id])).rows.length;
       const loads = (await c.query(
-        `INSERT INTO teaching_load (org_id, term_id, membership_id, subject_id, classroom_id, weekly_hours, sync_progress, special_room_id, block)
-         SELECT l.org_id, $2, l.membership_id, l.subject_id, nc.id, l.weekly_hours, l.sync_progress, l.special_room_id, l.block
+        `INSERT INTO teaching_load (org_id, term_id, membership_id, subject_id, classroom_id, weekly_hours, sync_progress, special_room_id, block, second_membership_id, second_hours)
+         SELECT l.org_id, $2, l.membership_id, l.subject_id, nc.id, l.weekly_hours, l.sync_progress, l.special_room_id, l.block, l.second_membership_id, l.second_hours
            FROM teaching_load l LEFT JOIN classroom oc ON oc.id = l.classroom_id
            LEFT JOIN classroom nc ON nc.org_id = l.org_id AND nc.term_id = $2 AND nc.grade = oc.grade AND nc.class_no = oc.class_no AND nc.deleted_at IS NULL
           WHERE l.org_id = $1 AND l.term_id = $3 AND l.deleted_at IS NULL AND (l.classroom_id IS NULL OR nc.id IS NOT NULL) RETURNING id`, [req.orgId, cur.id, prev.id])).rows.length;

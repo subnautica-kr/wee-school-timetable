@@ -2,6 +2,8 @@
 // 규칙을 고칠 곳은 여기뿐이다. 결과 항목에 겹친 칸 목록 cells 가 붙는다(칸 색칠용) — 서버는 응답에서 뺀다.
 // cells: [{classroom_id, weekday, period, membership_id, special_room_id, subject_id?}]
 // ctx: { periods: org.period_config, gradeOf: {classroom_id: grade}, combined: [[classroom_id...]], roomCap: {special_room_id: 정원}, studentOf: {classroom_id: 학생 수}, capCount: 'students'|'classes' }
+import { teachersOf } from './cellTeachers.js';
+
 const toMin = (s) => {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(s ?? ''));
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
@@ -37,14 +39,17 @@ export function findOverlaps(cells, ctx = {}) {
   };
 
   const found = [];
-  const scan = (key, rule, label) => {
+  // 교사는 「이 칸의 교사들」(첫째+둘째)마다 따로 묶는다 — 묶음에 둘째 교사로 든 칸이 있으면 결과에 second 표시(문구에 「둘째 교사」)
+  const scan = (key, rule, label, keysOf = (c) => (c[key] ? [c[key]] : [])) => {
     const by = new Map();
     for (const c of cells) {
-      if (!c[key]) continue;
-      const k = `${c[key]}:${c.weekday}`;
-      (by.get(k) ?? by.set(k, []).get(k)).push(c);
+      for (const v of keysOf(c)) {
+        const k = `${v}:${c.weekday}`;
+        if (!by.has(k)) by.set(k, { v, list: [] });
+        by.get(k).list.push(c);
+      }
     }
-    for (const list of by.values()) {
+    for (const { v, list } of by.values()) {
       if (list.length < 2) continue;
       // 시각이 있는 칸끼리는 시각 구간으로, 시각이 없는 칸만 시각 칸(교시 번호)으로 따로 본다(단위가 달라 서로 섞어 재지 않는다)
       const times = list.map(timeOf);
@@ -69,9 +74,10 @@ export function findOverlaps(cells, ctx = {}) {
         if (classes.size < 2 || isCombined(cur.map((x) => x.c))) return;
         if (isMixed && !(cur.some((x) => timeOf(x.c)) && cur.some((x) => !timeOf(x.c)))) return;
         const first = cur[0].c;
+        const second = cur.some((x) => String(x.c[key]) !== String(v));
         const when = byTime ? ` ${hhmm(cur[0].s)}~${hhmm(Math.max(...cur.map((x) => x.e)))}` : '';
         const ps = [...new Set(cur.map((x) => x.c.period))].sort((a, b) => a - b).join('·');
-        found.push({ rule, cells: cur.map((x) => x.c), weekday: first.weekday, period: Math.min(...cur.map((x) => x.c.period)), [key]: first[key], classroom_ids: [...classes], detail: `${label} 겹침 (${first.weekday}요일 ${ps}교시${when})${isMixed ? ' — 교시 시각이 없어 교시 번호로 비교함' : ''}`, ...(isMixed ? { level: '재확인' } : {}) });
+        found.push({ rule, cells: cur.map((x) => x.c), weekday: first.weekday, period: Math.min(...cur.map((x) => x.c.period)), [key]: v, ...(second ? { second: true } : {}), classroom_ids: [...classes], detail: `${label} 겹침${second ? '(둘째 교사)' : ''} (${first.weekday}요일 ${ps}교시${when})${isMixed ? ' — 교시 시각이 없어 교시 번호로 비교함' : ''}`, ...(isMixed ? { level: '재확인' } : {}) });
       };
       for (const it of items) {
         if (cur.length && it.s >= curEnd) { flush(); cur = []; curEnd = -Infinity; }
@@ -82,7 +88,7 @@ export function findOverlaps(cells, ctx = {}) {
       }
     }
   };
-  scan('membership_id', 'teacher_overlap', '교사');
+  scan('membership_id', 'teacher_overlap', '교사', teachersOf);
   scan('special_room_id', 'room_overlap', '특별실');
 
   return found;

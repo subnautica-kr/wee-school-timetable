@@ -2,8 +2,8 @@ import ExcelJS from 'exceljs';
 import { CEIL } from '../orgConfig.js';
 
 // 시수표 올리기 — 양식 · 표 읽기. 못 읽은 줄은 버리지 않고 사유와 함께 돌려준다(미리보기가 빨강으로 보인다).
-// 열: 교사(이름 또는 로그인 ID) · 교과 · 학년 · 반 · 주당 시수 · 연강. 새 열은 전부 선택 항목 — 연강 열이 없어도 읽힌다.
-export const LOAD_TEMPLATE_HEADER = ['교사(이름 또는 ID)', '교과', '학년', '반(비우면 그 학년 전체)', '주당 시수', '연강(○ 또는 비움)'];
+// 열: 교사(이름 또는 로그인 ID) · 교과 · 학년 · 반 · 주당 시수 · 연강 · 둘째 교사 · 함께 시수. 새 열은 전부 선택 항목 — 연강·둘째 교사 열이 없어도 읽힌다.
+export const LOAD_TEMPLATE_HEADER = ['교사(이름 또는 ID)', '교과', '학년', '반(비우면 그 학년 전체)', '주당 시수', '연강(○ 또는 비움)', '둘째 교사(선택)', '함께 시수(비우면 전부)'];
 
 // 반 칸 풀이: '' → 전체(null) · '1,3,5' · '1~4' · '1-4'. 읽지 못하면 { bad }.
 export function parseClassCell(raw) {
@@ -41,8 +41,10 @@ const norm = (s) => String(s ?? '').trim().toLowerCase();
 export function parseLoadRows(table, { people, classrooms, subjects }) {
   const hi = table.findIndex((r) => r.some((c) => /교과|과목/.test(c)) && r.some((c) => /교사|선생|시수/.test(c)));
   const head = hi >= 0 ? table[hi] : null;
-  const col = (re, dflt) => { const i = head ? head.findIndex((c) => re.test(c)) : -1; return i >= 0 ? i : (head ? -1 : dflt); };
-  const ci = { who: col(/교사|선생/, 0), sub: col(/교과|과목/, 1), grade: col(/^학년/, 2), cls: col(/^반/, 3), hours: col(/시수|시간/, 4), block: col(/연강/, 5) };
+  const col = (re, dflt, not = null) => { const i = head ? head.findIndex((c) => re.test(c) && !(not && not.test(c))) : -1; return i >= 0 ? i : (head ? -1 : dflt); };
+  const SECOND = /둘째|함께|보조|협력/; // 둘째 교사 열 머리 — 「교사」·「시수」 열 찾기에서 뺀다
+  const ci = { who: col(/교사|선생/, 0, SECOND), sub: col(/교과|과목/, 1), grade: col(/^학년/, 2), cls: col(/^반/, 3), hours: col(/시수|시간/, 4, SECOND), block: col(/연강/, 5),
+    who2: col(/둘째|협력|보조/, 6, /시수|시간/), hours2: col(/함께.*(시수|시간)|둘째.*(시수|시간)/, 7) };
   const at = (r, k) => (ci[k] >= 0 ? (r[ci[k]] ?? '') : '');
   const bySub = new Map(subjects.map((s) => [norm(s.name), s]).concat(subjects.filter((s) => s.short_name).map((s) => [norm(s.short_name), s])));
   const out = [];
@@ -58,11 +60,31 @@ export function parseLoadRows(table, { people, classrooms, subjects }) {
     const why = [];
     let teacherMissing = false;
     let membership_id = null;
+    const findPerson = (name) => {
+      const hit = people.filter((p) => norm(p.login_id) === norm(name));
+      return hit.length ? hit : people.filter((p) => p.name === name);
+    };
     if (!who) { why.push('교사 칸이 비어 있음'); teacherMissing = true; } else {
-      const hit = people.filter((p) => norm(p.login_id) === norm(who));
-      const byName = hit.length ? hit : people.filter((p) => p.name === who);
+      const byName = findPerson(who);
       if (byName.length === 1) membership_id = Number(byName[0].membership_id);
       else if (byName.length > 1) { why.push('이름이 같은 분이 여럿 — ID로 적어 주세요'); teacherMissing = true; } else { why.push('교사를 찾지 못함'); teacherMissing = true; }
+    }
+    // 둘째 교사(선택 · 명단의 누구나) · 함께 시수(비우면 전부)
+    const who2 = String(at(r, 'who2')).trim();
+    let second_membership_id = null;
+    let second_hours = null;
+    if (who2) {
+      const p2 = findPerson(who2);
+      if (p2.length === 1) second_membership_id = Number(p2[0].membership_id);
+      else why.push(p2.length > 1 ? '둘째 교사 이름이 같은 분이 여럿 — ID로 적어 주세요' : '둘째 교사를 찾지 못함');
+      if (second_membership_id && second_membership_id === membership_id) { why.push('둘째 교사가 첫째 교사와 같음'); second_membership_id = null; }
+      const h2raw = String(at(r, 'hours2')).trim();
+      if (h2raw) {
+        const h2 = num(h2raw);
+        if (h2 == null) why.push('함께 시수를 읽지 못함');
+        else if (hours > 0 && h2 > hours) why.push('함께 시수가 주당 시수보다 큼');
+        else second_hours = h2;
+      }
     }
     const sb = bySub.get(norm(subName));
     if (!sb) why.push(subName ? '교과를 찾지 못함' : '교과 칸이 비어 있음');
@@ -91,7 +113,7 @@ export function parseLoadRows(table, { people, classrooms, subjects }) {
     const onlyTeacher = teacherMissing && why.length === 1;
     out.push({
       line: i + 1, teacher: who, subject: subName, grade, cls: String(at(r, 'cls')).trim(), hours, block: blk.block ?? 1, target,
-      membership_id, subject_id: sb ? Number(sb.id) : null, classroom_ids,
+      membership_id, ...(who2 ? { second_teacher: who2, second_membership_id, second_hours } : {}), subject_id: sb ? Number(sb.id) : null, classroom_ids,
       ok: !why.length, blank_teacher_ok: onlyTeacher, reason: why.join(' · '),
     });
   });
@@ -102,9 +124,9 @@ export async function makeLoadTemplate() {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('시수표');
   ws.addRow(LOAD_TEMPLATE_HEADER).font = { bold: true };
-  ws.addRow(['예) 가나다', '체육', 3, '1~4', 2, '○']);
-  ws.addRow(['예) 가나다', '음악', 4, '', 2, '']);
-  ws.addRow(['예) 라마바', '영어', '', '', 1, '']);
+  ws.addRow(['예) 가나다', '체육', 3, '1~4', 2, '○', '', '']);
+  ws.addRow(['예) 가나다', '음악', 4, '', 2, '', '', '']);
+  ws.addRow(['예) 라마바', '영어', '', '', 2, '', '예) 원어민', 1]);
   ws.columns.forEach((c) => { c.width = 18; });
   return Buffer.from(await wb.xlsx.writeBuffer());
 }

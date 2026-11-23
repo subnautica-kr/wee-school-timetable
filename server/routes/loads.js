@@ -6,6 +6,7 @@ import { currentTerm } from './school.js';
 import { CEIL, limitWarnings, loadConfig, withWarnings } from '../orgConfig.js';
 import { makeLoadTemplate, parseLoadRows } from '../export/loadsImport.js';
 import { readTable } from '../export/import.js';
+import { teachersOf } from '../../shared/cellTeachers.js';
 
 // 시수표. 거부하지 않는다 — 덜 채운 줄(교사·교과·시수가 빈 줄)도 그대로 보관하고 목록으로 알린다.
 // 반 칸이 비면(classroom_id NULL) 「전체 마스터」: 모든 반에 적용된다.
@@ -15,6 +16,8 @@ const ref = z.union([z.null(), z.coerce.number().int().positive()]).optional();
 const notFound = (res) => res.status(404).json({ error: '없습니다' });
 const body = z.object({
   membership_id: ref,
+  second_membership_id: ref, // 둘째 교사(선택 · 명단의 누구나)
+  second_hours: z.union([z.null(), z.number().int().min(0).max(CEIL.loadPerWeek)]).optional(), // 함께 들어가는 시수(비우면 전부)
   subject_id: ref,
   classroom_id: ref,
   special_room_id: ref,
@@ -24,11 +27,12 @@ const body = z.object({
 });
 const REFS = [
   ['membership_id', `SELECT 1 FROM membership WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`],
+  ['second_membership_id', `SELECT 1 FROM membership WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`],
   ['subject_id', `SELECT 1 FROM subject WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`],
   ['classroom_id', `SELECT 1 FROM classroom WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`],
   ['special_room_id', `SELECT 1 FROM special_room WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`],
 ];
-const COLS = 'id, term_id, membership_id, subject_id, classroom_id, special_room_id, weekly_hours, sync_progress, block';
+const COLS = 'id, term_id, membership_id, second_membership_id, second_hours, subject_id, classroom_id, special_room_id, weekly_hours, sync_progress, block';
 
 // 순수 함수: 시수표 줄 → 덜 채운 줄 표시
 export const isIncomplete = (l) => !l.membership_id || !l.subject_id || !(l.weekly_hours > 0);
@@ -47,8 +51,9 @@ export function expandMaster(lines, classrooms) {
 
 // 순수 함수: 빠진 교사 — 명단에 있는 담임/전담 교사가 시수표에 한 줄도 없다
 export function missingTeachers(teachers, lines) {
-  const have = new Set(lines.map((l) => l.membership_id).filter(Boolean));
-  return teachers.filter((t) => !have.has(t.membership_id)).map((t) => ({ rule: 'load_missing_teacher', detail: { membership_id: t.membership_id, name: t.name } }));
+  const have = new Set(lines.flatMap(teachersOf).map(String)); // 둘째 교사로만 든 사람도 「시수표에 있음」
+  const hasT = (id) => have.has(String(id));
+  return teachers.filter((t) => !hasT(t.membership_id)).map((t) => ({ rule: 'load_missing_teacher', detail: { membership_id: t.membership_id, name: t.name } }));
 }
 
 export function loadsRouter(pool) {
@@ -125,6 +130,8 @@ export function loadsRouter(pool) {
   // membership_id 가 null 인 줄은 「교사 빈 줄」 — 화면이 「교사 빈 줄로 받기」를 켰을 때만 보낸다.
   const applyBody = z.object({ rows: z.array(z.object({
     membership_id: ref,
+    second_membership_id: ref, // 둘째 교사 열(선택) — 비면 있던 둘째 교사를 그대로 둔다
+    second_hours: z.number().int().min(0).max(CEIL.loadPerWeek).nullable().optional(),
     subject_id: id,
     classroom_ids: z.array(id).max(CEIL.classNo).nullable(),
     hours: z.number().int().min(1).max(CEIL.loadPerWeek),
@@ -141,14 +148,19 @@ export function loadsRouter(pool) {
         const mem = x.membership_id ?? null;
         const sb = (await pool.query(`SELECT 1 FROM subject WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`, [x.subject_id, req.orgId])).rows[0];
         const mm = mem ? (await pool.query(`SELECT 1 FROM membership WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`, [mem, req.orgId])).rows[0] : true;
+        const sec = x.second_membership_id ?? null;
+        const m2 = sec ? (await pool.query(`SELECT 1 FROM membership WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`, [sec, req.orgId])).rows[0] : true;
+        const h2 = sec ? (x.second_hours ?? null) : null;
         const targets = x.classroom_ids ?? [null];
-        if (!sb || !mm || !targets.length || targets.some((c) => c !== null && !okCls.has(c))) { skipped++; continue; }
+        if (!sb || !mm || !m2 || !targets.length || targets.some((c) => c !== null && !okCls.has(c))) { skipped++; continue; }
         for (const c of targets) {
           const up = await pool.query(
-            `UPDATE teaching_load SET weekly_hours = $6, block = $7 WHERE org_id = $1 AND term_id = $2 AND classroom_id IS NOT DISTINCT FROM $3::bigint AND subject_id = $4 AND membership_id IS NOT DISTINCT FROM $5::bigint AND deleted_at IS NULL`,
-            [req.orgId, t.id, c, x.subject_id, mem, x.hours, x.block]);
+            `UPDATE teaching_load SET weekly_hours = $6, block = $7,
+                    second_membership_id = COALESCE($8::bigint, second_membership_id), second_hours = CASE WHEN $8::bigint IS NULL THEN second_hours ELSE $9::int END
+              WHERE org_id = $1 AND term_id = $2 AND classroom_id IS NOT DISTINCT FROM $3::bigint AND subject_id = $4 AND membership_id IS NOT DISTINCT FROM $5::bigint AND deleted_at IS NULL`,
+            [req.orgId, t.id, c, x.subject_id, mem, x.hours, x.block, sec, h2]);
           if (up.rowCount) { updated++; continue; }
-          await pool.query(`INSERT INTO teaching_load (org_id, term_id, membership_id, subject_id, classroom_id, weekly_hours, block) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [req.orgId, t.id, mem, x.subject_id, c, x.hours, x.block]);
+          await pool.query(`INSERT INTO teaching_load (org_id, term_id, membership_id, subject_id, classroom_id, weekly_hours, block, second_membership_id, second_hours) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [req.orgId, t.id, mem, x.subject_id, c, x.hours, x.block, sec, h2]);
           created++;
         }
       }
@@ -165,8 +177,8 @@ export function loadsRouter(pool) {
       const t = await currentTerm(pool, req.orgId);
       const d = p.data;
       const { rows } = await pool.query(
-        `INSERT INTO teaching_load (org_id, term_id, membership_id, subject_id, classroom_id, special_room_id, weekly_hours, sync_progress, block) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING ${COLS}`,
-        [req.orgId, t.id, d.membership_id ?? null, d.subject_id ?? null, d.classroom_id ?? null, d.special_room_id ?? null, d.weekly_hours ?? 0, d.sync_progress ?? false, d.block ?? 1],
+        `INSERT INTO teaching_load (org_id, term_id, membership_id, subject_id, classroom_id, special_room_id, weekly_hours, sync_progress, block, second_membership_id, second_hours) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING ${COLS}`,
+        [req.orgId, t.id, d.membership_id ?? null, d.subject_id ?? null, d.classroom_id ?? null, d.special_room_id ?? null, d.weekly_hours ?? 0, d.sync_progress ?? false, d.block ?? 1, d.second_membership_id ?? null, d.second_hours ?? null],
       );
       res.status(201).json(withWarnings({ ...rows[0], incomplete: isIncomplete(rows[0]) }, await loadWarn(req, d)));
     } catch (e) { next(e); }
