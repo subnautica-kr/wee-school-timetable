@@ -13,6 +13,9 @@ import AutoGen from '../generate/AutoGen.jsx';
 import SoftSettings from '../rules/SoftSettings.jsx';
 import OrgConfig from '../settings/OrgConfig.jsx';
 import BackupButton from './BackupButton.jsx';
+import VersionHistory from './VersionHistory.jsx';
+import { hasNewVersion } from '../changelog.js';
+import { readSeenVersion, writeSeenVersion } from '../seenVersion.js';
 import FeatureBoard from '../settings/FeatureBoard.jsx';
 import { HelpModal, MenuIntro, Welcome } from '../grid/Guide.jsx';
 import { orderLine } from '../../../shared/feature-guide.js';
@@ -79,6 +82,9 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
   const tab = on(want) ? want : 'grid'; // 숨긴 탭이면 시간표로
   // 훅은 아래 early return 보다 먼저 — 뒤에 두면 loaded 가 바뀔 때 훅 수가 달라져 React #310 으로 빈 화면(T-1204v)
   const listRef = useRef(null);
+  const [seen, setSeen] = useState(readSeenVersion);
+  const isNew = hasNewVersion(seen, __APP_VERSION__);
+  const markSeen = () => { writeSeenVersion(__APP_VERSION__); setSeen(__APP_VERSION__); };
   useEffect(() => { // 지금 탭이 가로 스크롤 밖에 있으면 보이게
     if (!phone) return;
     listRef.current?.querySelector('[data-active]')?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
@@ -92,7 +98,7 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
     {tip && <Alert className="no-print" color="blue" mb="sm" withCloseButton onClose={() => setTip(null)}>{tip}</Alert>}
     <Tabs value={tab} onChange={setTab} keepMounted={false} {...tabProps}>
       <Tabs.List ref={listRef} mb="md" mr={phone ? 0 : 'md'} className={phone ? 'app-tabs-scroll' : undefined}>
-        {bar.map((i) => <Tabs.Tab key={i.v} value={i.v}>{phone && i.phoneLabel ? i.phoneLabel : i.label}</Tabs.Tab>)}
+        {bar.map((i) => <Tabs.Tab key={i.v} value={i.v}>{phone && i.phoneLabel ? i.phoneLabel : i.label}{i.v === 'me' && isNew && <span data-testid="new-dot" aria-label="새 기능이 있어요" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--mantine-color-red-6)', marginLeft: 6 }} />}</Tabs.Tab>)}
       </Tabs.List>
       {on('roster') && <Panel v="roster" hint={H.roster}><Roster orgId={user.orgId} /></Panel>}
       {on('school') && <Panel v="school" hint={H.school}><SchoolPage user={user} /></Panel>}
@@ -115,6 +121,7 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
         )}
         <ChangePassword onDone={onUser} />
         {admin && <BackupButton orgId={user.orgId} />}
+        <VersionHistory isNew={isNew} onSeen={markSeen} />
       </Panel>
     </Tabs>
     </IntroCtx.Provider>
