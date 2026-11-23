@@ -7,6 +7,7 @@ import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 import { todayStr } from '../today.js';
 import { featureOn } from '../features.js';
 import { EmptyHint, Finger } from './Guide.jsx';
+import { ClearTermButton } from '../settings/DangerZone.jsx';
 import { emptyCount, confirmText } from '../../../shared/ttConfirm.js';
 import { outsideCells, periodsMax, periodsOn } from '../../../shared/periods.js';
 import { roomWeek, isClash, movePreview } from '../../../shared/ttDrag.js';
@@ -24,9 +25,10 @@ function QuickStart({ P, onDone }) {
   const [per, setPer] = useState({ 1: 5, 2: 5, 3: 6, 4: 6, 5: 6, 6: 6 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [blocked, setBlocked] = useState(false); // 이번 학기에 이미 반이 있어 서버가 막음(409 exists)
   const go = async () => {
-    setBusy(true); setError('');
-    try { await api('POST', `${P}/quick-start`, { classes: cls, periods: per }); onDone(); } catch (e) { setError(e.message); setBusy(false); }
+    setBusy(true); setError(''); setBlocked(false);
+    try { await api('POST', `${P}/quick-start`, { classes: cls, periods: per }); onDone(); } catch (e) { setError(e.message); setBlocked(!!e.body?.exists); setBusy(false); }
   };
   const total = GRADES.reduce((a, g) => a + (cls[g] || 0), 0);
   return (
@@ -34,6 +36,12 @@ function QuickStart({ P, onDone }) {
       <Stack gap="xs">
         <Text fw={700}>빠른 시작 — 반 수와 교시 수만 정하세요</Text>
         {error && <Alert color="red">{error}</Alert>}
+        {blocked && (
+          <Alert color="yellow" title="이번 학기에 이미 반이 있어서 막혔습니다" data-testid="quick-blocked">
+            <Text size="sm" mb="xs">빠른 시작은 반이 하나도 없는 빈 학기에서만 됩니다. 처음부터 다시 만들고 싶다면 이번 학기를 비운 뒤 다시 하세요. 비우는 범위는 「반까지 전부」이고, 명단·교과·특별실은 그대로 남으며 지운 것은 「내 정보 → 지운 것 보관함」에서 되살릴 수 있습니다.</Text>
+            <ClearTermButton P={P} level="classes" label="이번 학기 비우고 다시 하기…" onDone={() => { setBlocked(false); setError(''); onDone(); }} />
+          </Alert>
+        )}
         <Table><Table.Thead><Table.Tr><Table.Th>학년</Table.Th><Table.Th>반 수(0이면 안 만듦)</Table.Th><Table.Th>하루 교시 수</Table.Th></Table.Tr></Table.Thead>
           <Table.Tbody>{GRADES.map((g) => (
             <Table.Tr key={g}><Table.Td>{g}학년</Table.Td>

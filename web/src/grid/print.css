@@ -12,8 +12,6 @@
   .app-tabs-scroll { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; scrollbar-width: none; margin: 0 0 var(--mantine-spacing-md); }
   .app-tabs-scroll::-webkit-scrollbar { display: none; }
   .app-tabs-scroll .mantine-Tabs-tab { flex: 0 0 auto; white-space: nowrap; }
-  .more-menu { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: var(--mantine-spacing-sm); margin-bottom: var(--mantine-spacing-md); }
-  .more-menu > div { min-width: 0; }
   /* 좁은 폭: 표 한 줄을 카드로 접는다 */
   .card-table, .card-table tbody { display: block; width: 100%; }
   .card-table thead { display: none; }

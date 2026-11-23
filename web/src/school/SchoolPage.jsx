@@ -9,6 +9,7 @@ import { periodsMax } from '../../../shared/periods.js';
 import { useOrgConfig } from '../orgConfig.js';
 import Term from '../Term.jsx';
 import { SCHOOL_TAB_FEATURE, visibleTabs } from '../features.js';
+import { ClearTermButton } from '../settings/DangerZone.jsx';
 import { MenuIntro } from '../grid/Guide.jsx';
 import { useConfirm } from '../Confirm.jsx';
 import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
@@ -177,6 +178,9 @@ function Semester({ P, admin, term, classes, onDone }) {
       <Group>
         {admin && <Button color="red" variant="light" onClick={start}>새 학기 시작</Button>}
         {admin && !classes?.length && (terms || []).length > 1 && <Button variant="default" onClick={async () => { setErr(''); try { await api('POST', `${P}/terms/import-previous`, {}); onDone(); } catch (e) { setErr(e.message); } }}>지난 학기 반·과목 가져오기</Button>}
+        {admin && classes?.length > 0 && (terms || []).length > 1 && (
+          <Text component="div" size="sm" c="dimmed" data-testid="import-blocked">지난 학기 반·과목 가져오기는 이번 학기에 반이 없을 때만 됩니다(지금 {classes.length}개). 가져오려면 이번 학기를 먼저 비우세요.{' '}<ClearTermButton P={P} level="classes" label="이번 학기 비우고 다시 하기…" variant="light" onDone={onDone} /></Text>
+        )}
         <Select placeholder="보관 학기 보기" clearable w={200} onChange={view}
           data={(terms || []).filter((t) => t.id !== term?.id).map((t) => ({ value: String(t.id), label: `${t.year}년 ${t.semester}학기 (${t.status})` }))} />
       </Group>

@@ -25,7 +25,7 @@ export const featuresUpTo = (n) => Object.fromEntries(FEATURES.map((f) => [f.key
 // 메뉴(탭 값) → 켜져야 보이는 스위치 키(하나라도 켜지면 보임). 목록에 없는 메뉴(grid·me)는 0단계라 늘 보인다.
 export const MENU_FEATURES = {
   roster: ['setup'], mine: ['setup'], school: ['setup', 'loads', 'pins', 'levels'],
-  gen: ['gen'], softset: ['soft', 'small', 'levels'], orgcfg: ['orgcfg'], out: ['output', 'import'],
+  gen: ['gen'], softset: ['soft', 'small'], orgcfg: ['orgcfg'], out: ['output', 'import'],
   att: ['att'], sub: ['sub'], rooms: ['rooms'], audit: ['audit'],
 };
 
@@ -43,6 +43,22 @@ export const OUT_TAB_FEATURE = { down: 'output', lunch: 'output', cmp: 'output',
 export const visibleTabs = (map, features, tabs) => tabs.filter((t) => featureOn(features, map[t]));
 // 스위치판: 지금 상태(features)와 목표({키: boolean}) 중 값이 달라지는 키만 — PUT 에 이것만 싣는다.
 export const featureDiff = (features, target) => Object.fromEntries(Object.entries(target).filter(([k, v]) => featureOn(features, k) !== v));
+
+// 끌 때 남는 자료를 셀 수 있는 키 — 이미 있는 목록 API 로 센다(서버는 안 고침). 목록 API 는 500건에서 끊으니 그 이상은 「500건 이상」.
+export const FEATURE_DATA = {
+  loads: { path: '/loads', unit: '줄', where: '「학교 기본 → 시수표」', count: (r) => r?.lines?.length },
+  pins: { path: '/pins', unit: '칸', where: '「학교 기본 → 고정·금지」', count: (r) => (Array.isArray(r) ? r.length : undefined) },
+  sub: { path: '/substitutes', unit: '건', where: '「보결」', count: (r) => r?.rows?.length, cap: 500 },
+  rooms: { path: '/bookings', unit: '건', where: '「특별실」', count: (r) => r?.rows?.length, cap: 500 },
+};
+// 끈 직후 보여 줄 안내 문장. n 이 숫자면 건수까지, 아니면(못 셈·셀 수 없는 기능) 건수 없이.
+export function offNotice(key, n) {
+  const f = FEATURE_DATA[key];
+  const what = FEATURES.find((x) => x.key === key)?.name ?? key;
+  const has = typeof n === 'number' ? (n === 0 ? '' : `(${f?.cap && n >= f.cap ? `${f.cap}${f.unit} 이상` : `${n}${f?.unit ?? '건'}`}) `) : '';
+  if (n === 0) return `「${what}」을 껐습니다. 남은 자료는 없습니다.`;
+  return `「${what}」을 껐습니다. 끄면 메뉴만 숨고 넣어 둔 자료는 남아요${has ? ` ${has.trim()}` : ''}. 지우려면 다시 켜고 ${f?.where ?? '그 메뉴'}에서 지우세요. 한꺼번에 비우는 길은 「기관 설정」 맨 아래 위험 구역입니다.`;
+}
 
 // 「써 보기」가 데려갈 메뉴(탭 값). intro·메뉴 없는 키는 시간표 격자.
 export const tryMenu = (key) => Object.keys(MENU_FEATURES).find((v) => MENU_FEATURES[v].includes(key)) || 'grid';
