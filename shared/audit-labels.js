@@ -1,7 +1,7 @@
 import { SUB_GRADES } from './sub-grades.js';
 // 기록 탭 이름표 — 서버가 남기는 동작 이름(audit action)을 학교 사람 말로. 화면과 시험이 한 곳을 본다.
 export const ACTION_LABEL = {
-  'admin.reset-password': '비밀번호 초기화(시스템 관리자)', 'attendance.close': '근태 마감', 'attendance.delete': '근태 삭제', 'attendance.edit': '근태 고침', 'attendance.reopen': '근태 마감 풂', 'attendance.save': '근태 저장',
+  'admin.reset-password': '비밀번호 초기화(시스템 관리자)', 'admin.delete-user': '계정 지움(시스템 관리자)', 'admin.demote': '기관 관리자 뗌(시스템 관리자)', 'org.delete': '기관 지움', 'attendance.close': '근태 마감', 'attendance.delete': '근태 삭제', 'attendance.edit': '근태 고침', 'attendance.reopen': '근태 마감 풂', 'attendance.save': '근태 저장',
   'booking.cancel': '예약 취소', 'booking.create': '예약',
   'org.backup': '학교 자료 내려받기', 'org.concurrent-add': '겸임 추가', 'org.create': '기관 만듦', 'org.first-admin': '첫 관리자 만듦', 'org.switch': '기관 전환', 'org.update': '기관 고침', 'password.change': '비밀번호 바꿈',
   'room_lock.create': '특별실 잠금', 'room_lock.delete': '특별실 잠금 풂',
