@@ -10,6 +10,7 @@ import { emptyCount, confirmText } from '../../../shared/ttConfirm.js';
 import { outsideCells, periodsMax, periodsOn } from '../../../shared/periods.js';
 import { roomWeek, isClash, movePreview } from '../../../shared/ttDrag.js';
 import { findById, pickOrFirst, sameId, loadPick, savePick } from './pick.js';
+import { teacherNames, teacherClashes, clashText } from './secondTeacher.js';
 
 const UNDO_MAX = 50;
 const GRADES = [1, 2, 3, 4, 5, 6];
@@ -131,7 +132,7 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
   async function save(cell, { record = true } = {}) {
     setError('');
     const key = `${cell.classroom_id}:${cell.weekday}:${cell.period}`;
-    const prev = cellMap.get(key) || { ...cell, subject_id: null, membership_id: null, special_room_id: null };
+    const prev = cellMap.get(key) || { ...cell, subject_id: null, membership_id: null, second_membership_id: null, special_room_id: null };
     if (d.timetable.status === '확정' && levelOf('edit_confirmed') === '재확인') {
       const a = await ask('확정된 시간표입니다. 어떻게 고칠까요?', { yes: '확정 풀고 고치기', alt: '확정본 그대로 고치기(기록에 남음)', no: '취소' });
       if (!a) return;
@@ -150,13 +151,13 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
     const prev = undo[undo.length - 1];
     if (!prev) return;
     setUndo((u) => u.slice(0, -1));
-    await save({ classroom_id: prev.classroom_id, weekday: prev.weekday, period: prev.period, subject_id: prev.subject_id ?? null, membership_id: prev.membership_id ?? null, special_room_id: prev.special_room_id ?? null }, { record: false });
+    await save({ classroom_id: prev.classroom_id, weekday: prev.weekday, period: prev.period, subject_id: prev.subject_id ?? null, membership_id: prev.membership_id ?? null, second_membership_id: prev.second_membership_id ?? null, special_room_id: prev.special_room_id ?? null }, { record: false });
   };
   const open = (w, p) => {
     if (!admin) return;
     const c = cellMap.get(`${cls.id}:${w}:${p}`);
     setSel({ weekday: w, period: p });
-    setForm({ subject_id: c?.subject_id ? String(c.subject_id) : null, membership_id: c?.membership_id ? String(c.membership_id) : null, special_room_id: c?.special_room_id ? String(c.special_room_id) : null });
+    setForm({ subject_id: c?.subject_id ? String(c.subject_id) : null, membership_id: c?.membership_id ? String(c.membership_id) : null, second_membership_id: c?.second_membership_id ? String(c.second_membership_id) : null, special_room_id: c?.special_room_id ? String(c.special_room_id) : null });
   };
   const num = (v) => (v ? Number(v) : null);
   const commit = async (clear) => {
@@ -168,7 +169,7 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
         form.subject_id = String(have ? have.id : (await api('POST', `${P}/subjects`, { name: nn })).id);
       } catch (e) { setError(e.message); return; }
     }
-    await save(clear ? { ...base, subject_id: null, membership_id: null, special_room_id: null } : { ...base, subject_id: num(form.subject_id), membership_id: num(form.membership_id), special_room_id: num(form.special_room_id) });
+    await save(clear ? { ...base, subject_id: null, membership_id: null, second_membership_id: null, special_room_id: null } : { ...base, subject_id: num(form.subject_id), membership_id: num(form.membership_id), second_membership_id: num(form.second_membership_id), special_room_id: num(form.special_room_id) });
     setSel(null);
   };
   const run = async (fn) => { setError(''); try { await fn(); } catch (e) { setError(e.message); } };
@@ -187,6 +188,10 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
     if (!(await ask(`「${d.timetable.name}」을 지울까요?${d.timetable.status === '확정' ? ' 확정된 시간표입니다.' : ''}`, { yes: '지우기' }))) return;
     await api('DELETE', `${P}/timetables/${tid}`); onDeleted();
   });
+  const clashNote = sel ? clashText(
+    teacherClashes(d.cells, { classroom_id: cls.id, weekday: sel.weekday, period: sel.period, membership_id: num(form.membership_id), second_membership_id: num(form.second_membership_id) }),
+    (id) => name(d.teachers, id)?.name,
+    (cid) => { const k = findById(d.classrooms, cid); return k ? `${k.grade}-${k.class_no}` : '다른 반'; }) : '';
   const hasCells = d.cells.length > 0;
   const redCount = d.violations.filter((v) => v.color === 'red').length;
   const gradeOf = Object.fromEntries(d.classrooms.map((k) => [k.id, k.grade]));
@@ -197,7 +202,7 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
     const src = cellMap.get(`${cls.id}:${from.weekday}:${from.period}`);
     if (!src) return;
     const dst = cellMap.get(`${cls.id}:${w}:${p}`);
-    const body = (x) => ({ subject_id: x?.subject_id ?? null, membership_id: x?.membership_id ?? null, special_room_id: x?.special_room_id ?? null });
+    const body = (x) => ({ subject_id: x?.subject_id ?? null, membership_id: x?.membership_id ?? null, second_membership_id: x?.second_membership_id ?? null, special_room_id: x?.special_room_id ?? null });
     await save({ classroom_id: cls.id, weekday: w, period: p, ...body(src) });
     await save({ classroom_id: cls.id, weekday: from.weekday, period: from.period, ...body(dst) }); // 맞바꿈이면 옛 칸 내용, 아니면 비움
   };
@@ -275,7 +280,7 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
                       {c ? (
                         <>
                           <Text size="sm" fw={600}>{subjName(c.subject_id) || '·'}</Text>
-                          <Text size="xs" c="dimmed">{name(d.teachers, c.membership_id)?.name || ''}{c.special_room_id ? ` @${name(d.rooms, c.special_room_id)?.name || ''}` : ''}</Text>
+                          <Text size="xs" c="dimmed">{teacherNames(c, d.teachers).join(' · ')}{c.special_room_id ? ` @${name(d.rooms, c.special_room_id)?.name || ''}` : ''}</Text>
                           {v && <Text size="xs" c={v.color} fw={700}>{v.label}</Text>}
                           {offDay(w, p) && <Text size="xs" c="orange" fw={700}>교시 수 밖</Text>}
                         </>
@@ -308,7 +313,7 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
                         <Table.Td key={wi} style={{ background: clash ? 'var(--mantine-color-red-1)' : undefined }}>
                           {list?.map((c) => {
                             const k = findById(d.classrooms, c.classroom_id);
-                            return <Text size="xs" key={c.classroom_id} c={clash ? 'red' : undefined}>{k ? `${k.grade}-${k.class_no}` : ''} {name(d.subjects, c.subject_id)?.name || ''} {name(d.teachers, c.membership_id)?.name || ''}</Text>;
+                            return <Text size="xs" key={c.classroom_id} c={clash ? 'red' : undefined}>{k ? `${k.grade}-${k.class_no}` : ''} {name(d.subjects, c.subject_id)?.name || ''} {teacherNames(c, d.teachers).join(' · ')}</Text>;
                           })}
                           {clash && <Text size="xs" c="red" fw={700}>겹침</Text>}
                         </Table.Td>
@@ -326,6 +331,8 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
           <Select label="교과" allowDeselect={false} searchable data={d.subjects.map((s) => ({ value: String(s.id), label: s.name }))} value={form.subject_id} onChange={(v) => setForm({ ...form, subject_id: v })} />
           <TextInput label="또는 과목 이름 직접 쓰기" placeholder="목록에 없으면 여기에 (예: 창체)" value={form.newSubject || ''} onChange={(e) => setForm({ ...form, newSubject: e.currentTarget.value })} />
           <Select label="교사(비워도 됩니다)" clearable searchable data={d.teachers.map((t) => ({ value: String(t.id), label: t.name }))} value={form.membership_id} onChange={(v) => setForm({ ...form, membership_id: v })} />
+          <Select label="둘째 교사(선택 — 한 수업에 교사 둘일 때)" clearable searchable placeholder="없음" data={d.teachers.filter((t) => String(t.id) !== String(form.membership_id)).map((t) => ({ value: String(t.id), label: t.name }))} value={form.second_membership_id ?? null} onChange={(v) => setForm({ ...form, second_membership_id: v })} />
+          {clashNote && <Alert color="yellow" data-testid="second-clash">{clashNote} (막지 않습니다)</Alert>}
           {roomsOn && <Select label="특별실" clearable placeholder="없음" data={d.rooms.map((r) => ({ value: String(r.id), label: r.name }))} value={form.special_room_id} onChange={(v) => setForm({ ...form, special_room_id: v })} />}
           <Group justify="space-between">
             <Button color="red" variant="light" onClick={() => commit(true)}>칸 비우기</Button>
