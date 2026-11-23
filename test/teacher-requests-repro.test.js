@@ -73,11 +73,12 @@ test('7번: 큰 학교를 담임 시수 없이 심으면 빠진 교사 알림이
   assert.equal(miss[0].detail.people.length, 56);
 });
 
-test('6번: 시수표·칸에는 둘째 교사를 담을 열이 없다', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {
+test('6번(T-1206): 시수표·칸에 둘째 교사를 담을 선택 열이 있다', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {
   const { pool } = await setupSchoolEnv(t, 'rep');
   for (const table of ['teaching_load', 'cell']) {
-    const { rows } = await pool.query(`SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND column_name LIKE '%membership%'`, [table]);
-    assert.deepEqual(rows.map((x) => x.column_name), ['membership_id']); // 고칠 것: T-1206
+    const { rows } = await pool.query(`SELECT column_name, is_nullable FROM information_schema.columns WHERE table_name = $1 AND column_name LIKE '%membership%' ORDER BY column_name`, [table]);
+    assert.deepEqual(rows.map((x) => x.column_name), ['membership_id', 'second_membership_id']);
+    assert.equal(rows[1].is_nullable, 'YES'); // 선택 칸
   }
 });
 
