@@ -110,7 +110,7 @@ export default function AdminOrgs() {
                       <Button size="xs" variant="default" onClick={() => toggle(o)}>{o.status === '사용' ? '중지' : '사용으로'}</Button>
                       <Button size="xs" variant="default" onClick={() => setAdmin(o)}>첫 관리자 만들기</Button>
                       <Button size="xs" variant="default" onClick={() => setConc(o)}>겸임 소속 추가</Button>
-                      <Button size="xs" variant="default" onClick={() => openReset(o)}>관리자 비밀번호 초기화</Button>
+                      <Button size="xs" variant="default" onClick={() => openReset(o)}>관리자 관리(비번·빼기·지우기)</Button>
                       <Button size="xs" color="red" variant="light" onClick={() => askDeleteOrg(o)}>지우기</Button>
                     </Group>
                   )}
