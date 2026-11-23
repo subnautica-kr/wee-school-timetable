@@ -68,8 +68,10 @@ const TARGET = {
   special_room: { table: 'special_room', name: 'x.name', term: 'NULL::bigint' },
   timetable: { table: 'timetable', name: 'x.name', term: 'x.term_id' },
   term: { table: 'term', name: `x.year || '년 ' || x.semester || '학기'`, term: 'x.id' },
+  term_clear: { table: 'term', name: `x.year || '년 ' || x.semester || '학기'`, term: 'x.id' }, // 학기 비우기 묶음(학기 자체는 안 지운다)
 };
-export const KINDS = Object.keys(TARGET);
+// 개별 지우기·미리보기 대상(관계표가 있는 것만)
+export const KINDS = Object.keys(RELATIONS);
 
 // 되살리기가 쓰는 칸 이름은 DB 에서 읽으므로 이 목록 밖이면 거부한다(SQL 에 끼우는 이름의 허용 목록)
 const TABLES = new Set([...Object.values(TARGET).map((t) => t.table), ...Object.values(RELATIONS).flat().map((r) => r.table)]);
@@ -148,18 +150,10 @@ async function addItems(db, batchId, table, rows) {
   );
 }
 
-// 묶음 지우기 — 트랜잭션 안에서 부른다(inTx). 대상과 딸린 것을 표시 삭제·칸 비움하고 같은 묶음 번호로 적는다.
-// 돌려줌: null(없음·남의 기관) | { batchId, label, effects }. 보관 학기면 409 를 던진다.
-export async function removeWithCascade(client, orgId, kind, id, userId) {
-  const t = await findTarget(client, orgId, kind, id, { lock: true });
-  if (!t) return null;
-  if (t.archived) throw httpError(409, '보관된 학기는 볼 수만 있습니다');
-  const batchId = (await client.query(
-    `INSERT INTO delete_batch (org_id, kind, target_id, label, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [orgId, kind, id, t.label, userId ?? null],
-  )).rows[0].id;
+// 관계 줄들을 차례로 적용(지움·칸 비움) — 묶음 번호(batchId)로 적는다. $1 = id(대상 또는 학기)
+async function applyRelations(client, orgId, rels, id, batchId) {
   const effects = [];
-  for (const rel of RELATIONS[kind]) {
+  for (const rel of rels) {
     let items;
     const { table } = rel;
     const where = whereOf(rel);
@@ -182,6 +176,20 @@ export async function removeWithCascade(client, orgId, kind, id, userId) {
     await addItems(client, batchId, rel.table, items);
     if (items.length) effects.push({ table: rel.table, label: rel.label, count: rel.how === 'delete' ? items.length : items.filter((x) => x.col === rel.col).length, action: rel.how });
   }
+  return effects;
+}
+
+// 묶음 지우기 — 트랜잭션 안에서 부른다(inTx). 대상과 딸린 것을 표시 삭제·칸 비움하고 같은 묶음 번호로 적는다.
+// 돌려줌: null(없음·남의 기관) | { batchId, label, effects }. 보관 학기면 409 를 던진다.
+export async function removeWithCascade(client, orgId, kind, id, userId) {
+  const t = await findTarget(client, orgId, kind, id, { lock: true });
+  if (!t) return null;
+  if (t.archived) throw httpError(409, '보관된 학기는 볼 수만 있습니다');
+  const batchId = (await client.query(
+    `INSERT INTO delete_batch (org_id, kind, target_id, label, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [orgId, kind, id, t.label, userId ?? null],
+  )).rows[0].id;
+  const effects = await applyRelations(client, orgId, RELATIONS[kind], id, batchId);
   const table = TARGET[kind].table;
   await client.query(`UPDATE ${table} SET deleted_at = ${STAMP} WHERE id = $1 AND org_id = $2`, [id, orgId, batchId]);
   await addItems(client, batchId, TARGET[kind].table, [{ id }]);
@@ -195,7 +203,7 @@ const CONFLICT = {
   subject: [`SELECT 1 FROM subject o, subject x WHERE x.id = $1 AND o.org_id = x.org_id AND o.name = x.name AND o.deleted_at IS NULL AND o.id <> x.id`, (l) => `같은 이름의 교과(${l})가 이미 있어 되살릴 수 없습니다`],
   special_room: [`SELECT 1 FROM special_room o, special_room x WHERE x.id = $1 AND o.org_id = x.org_id AND o.name = x.name AND o.deleted_at IS NULL AND o.id <> x.id`, (l) => `같은 이름의 특별실(${l})이 이미 있어 되살릴 수 없습니다`],
   timetable: [`SELECT 1 FROM timetable o, timetable x WHERE x.id = $1 AND o.org_id = x.org_id AND o.term_id = x.term_id AND o.name = x.name AND o.deleted_at IS NULL AND o.id <> x.id`, (l) => `같은 이름의 시간표(${l})가 이미 있어 되살릴 수 없습니다`],
-  term: [`SELECT 1 FROM term o, term x WHERE x.id = $1 AND o.org_id = x.org_id AND o.year = x.year AND o.semester = x.semester AND o.deleted_at IS NULL AND o.id <> x.id`, (l) => `같은 학기(${l})가 이미 있어 되살릴 수 없습니다`],
+  term: [`SELECT 1 FROM term o, term x WHERE x.id = $1 AND o.org_id = x.org_id AND o.deleted_at IS NULL AND o.id <> x.id AND ((o.year = x.year AND o.semester = x.semester) OR (x.status = '진행' AND o.status = '진행'))`, (l) => `같은 학기(${l})가 있거나 이미 진행 중인 다른 학기가 있어 되살릴 수 없습니다`],
 };
 
 // 묶음 되살리기 — 트랜잭션 안에서 부른다. 표시 삭제를 풀고 비운 칸을 되돌린다(그 사이 누가 바꾼 칸은 그대로 둔다).
@@ -259,4 +267,93 @@ export async function inTx(pool, fn) {
   } finally {
     c.release();
   }
+}
+
+// ── 학기 비우기(T-1212) — 세 단계. 학기 자체·보관 학기·감사 기록은 남긴다. ──
+const TT_RELS = [
+  { table: 'timetable', col: 'term_id', how: 'delete', label: '시간표' },
+  { table: 'cell', match: `timetable_id IN (SELECT id FROM timetable WHERE term_id = $1)`, how: 'delete', label: '시간표 칸' },
+];
+const HOURS_RELS = [...TT_RELS,
+  { table: 'teaching_load', col: 'term_id', how: 'delete', label: '시수 줄' },
+  { table: 'pin', col: 'term_id', how: 'delete', label: '고정·금지 칸' },
+];
+const IN_TERM_CLASS = `classroom_id IN (SELECT id FROM classroom WHERE term_id = $1)`;
+const CLEAR_RELATIONS = {
+  timetable: TT_RELS,
+  hours: HOURS_RELS,
+  classes: [...HOURS_RELS,
+    { table: 'substitute', match: IN_TERM_CLASS, how: 'delete', label: '반에 걸린 보결' },
+    { table: 'booking', match: IN_TERM_CLASS, how: 'delete', label: '반에 걸린 특별실 예약' },
+    { table: 'classroom', col: 'term_id', how: 'delete', label: '반' },
+  ],
+};
+export const CLEAR_LEVELS = Object.keys(CLEAR_RELATIONS);
+const LEVEL_NAME = { timetable: '시간표만', hours: '시간표·시수표·고정', classes: '시간표·시수표·고정·반까지' };
+
+// 비우기 미리보기 — 없거나 남의 기관 학기면 null(→ 404)
+export async function previewClear(db, orgId, termId, level) {
+  const t = await findTarget(db, orgId, 'term_clear', termId);
+  if (!t || !CLEAR_RELATIONS[level]) return null;
+  const effects = [];
+  for (const rel of CLEAR_RELATIONS[level]) {
+    const { table } = rel;
+    const where = whereOf(rel);
+    const n = (await db.query(`SELECT count(*)::int AS n FROM ${table} WHERE ${where}`, [termId, orgId])).rows[0].n;
+    if (n) effects.push({ table: rel.table, label: rel.label, count: n, action: rel.how });
+  }
+  const warnings = [];
+  if (t.archived) warnings.push('보관된 학기는 비울 수 없습니다');
+  const hit = (await db.query(`SELECT count(*)::int AS n FROM timetable WHERE term_id = $1 AND org_id = $2 AND deleted_at IS NULL AND status = '확정'`, [termId, orgId])).rows[0].n;
+  if (hit) warnings.push(`확정된 시간표 ${hit}개가 함께 비워집니다`);
+  return { target: { kind: 'term', id: Number(t.id), label: t.label }, level, levelName: LEVEL_NAME[level], effects, warnings, confirmText: t.label };
+}
+
+// 학기 비우기 — 트랜잭션 안에서 부른다. confirm 이 학기 이름과 다르면 400, 보관 학기·비울 것 없음은 409.
+export async function clearTerm(client, orgId, termId, level, confirm, userId) {
+  const rels = CLEAR_RELATIONS[level];
+  const t = rels && await findTarget(client, orgId, 'term_clear', termId, { lock: true });
+  if (!t) return null;
+  if (t.archived) throw httpError(409, '보관된 학기는 비울 수 없습니다');
+  if (confirm !== t.label) throw httpError(400, `확인 글자가 다릅니다. 「${t.label}」을 그대로 입력해 주세요`);
+  const batchId = (await client.query(
+    `INSERT INTO delete_batch (org_id, kind, target_id, label, created_by) VALUES ($1, 'term_clear', $2, $3, $4) RETURNING id`,
+    [orgId, termId, `${t.label} 비우기(${LEVEL_NAME[level]})`, userId ?? null],
+  )).rows[0].id;
+  const effects = await applyRelations(client, orgId, rels, termId, batchId);
+  if (!effects.length) throw httpError(409, '비울 것이 없습니다');
+  await client.query(`UPDATE delete_batch SET summary = $2 WHERE id = $1`, [batchId, JSON.stringify(effects)]);
+  return { batchId: Number(batchId), label: t.label, level, effects };
+}
+
+// 방금 연 학기 되돌리기 — 가능한지 따진다. 돌려줌 { ok, reason?, current?, previous? }
+// 새 학기를 연 기록(audit_log 의 term.new_semester)에서 지난 학기를 찾는다 — 그 기록은 읽기만 한다.
+export async function undoNewSemesterCheck(db, orgId, { lock = false } = {}) {
+  const no = (reason) => ({ ok: false, reason });
+  const guard = lock ? 'FOR UPDATE' : '';
+  const cur = (await db.query(`SELECT id, year, semester FROM term WHERE org_id = $1 AND status = '진행' AND deleted_at IS NULL ORDER BY year DESC, semester DESC LIMIT 1 ${guard}`, [orgId])).rows[0];
+  if (!cur) return no('진행 중인 학기가 없습니다');
+  const log = (await db.query(`SELECT before FROM audit_log WHERE org_id = $1 AND action = 'term.new_semester' AND after->>'id' = $2 ORDER BY id DESC LIMIT 1`, [orgId, String(cur.id)])).rows[0];
+  if (!log?.before?.id) return no('지금 학기는 「새 학기 시작」으로 연 학기가 아니라 되돌릴 수 없습니다');
+  const prev = (await db.query(`SELECT id, year, semester FROM term WHERE id = $1 AND org_id = $2 AND status = '보관' AND deleted_at IS NULL`, [log.before.id, orgId])).rows[0];
+  if (!prev) return no('지난 학기가 이미 보관 상태가 아니거나 없어져 되돌릴 수 없습니다');
+  const used = (await db.query(
+    `SELECT EXISTS (SELECT 1 FROM timetable WHERE term_id = $1 AND org_id = $2 AND status = '확정') AS confirmed,
+            EXISTS (SELECT 1 FROM substitute WHERE term_id = $1 AND org_id = $2) AS sub,
+            EXISTS (SELECT 1 FROM attendance WHERE term_id = $1 AND org_id = $2) AS att`,
+    [cur.id, orgId],
+  )).rows[0];
+  if (used.confirmed) return no('새 학기에 확정한 시간표가 있어 되돌릴 수 없습니다');
+  if (used.sub) return no('새 학기에 보결 기록이 있어 되돌릴 수 없습니다');
+  if (used.att) return no('새 학기에 근태 기록이 있어 되돌릴 수 없습니다');
+  return { ok: true, current: cur, previous: prev };
+}
+
+// 되돌리기 실행 — 트랜잭션 안에서. 새 학기를 딸린 것과 함께 지우고(휴지통에 묶음으로 남음) 지난 학기 보관을 푼다. 안 되면 409.
+export async function undoNewSemester(client, orgId, userId) {
+  const chk = await undoNewSemesterCheck(client, orgId, { lock: true });
+  if (!chk.ok) throw httpError(409, chk.reason);
+  const removed = await removeWithCascade(client, orgId, 'term', chk.current.id, userId);
+  await client.query(`UPDATE term SET status = '진행' WHERE id = $1 AND org_id = $2`, [chk.previous.id, orgId]);
+  return { removed, current: chk.current, reopened: chk.previous };
 }
