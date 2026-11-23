@@ -49,7 +49,7 @@ export const FEATURE_DATA = {
   loads: { path: '/loads', unit: '줄', where: '「학교 기본 → 시수표」', count: (r) => r?.lines?.length },
   pins: { path: '/pins', unit: '칸', where: '「학교 기본 → 고정·금지」', count: (r) => (Array.isArray(r) ? r.length : undefined) },
   sub: { path: '/substitutes', unit: '건', where: '「보결」', count: (r) => r?.rows?.length, cap: 500 },
-  rooms: { path: '/bookings', unit: '건', where: '「특별실」', count: (r) => r?.rows?.length, cap: 500 },
+  rooms: { path: '/special-rooms', unit: '개', where: '「학교 기본 → 특별실」', count: (r) => (Array.isArray(r) ? r.length : undefined) }, // 방 목록이 남는 자료(예약은 방에 딸림)
 };
 // 끈 직후 보여 줄 안내 문장. n 이 숫자면 건수까지, 아니면(못 셈·셀 수 없는 기능) 건수 없이.
 export function offNotice(key, n) {

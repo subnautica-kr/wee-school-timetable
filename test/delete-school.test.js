@@ -153,7 +153,9 @@ test('3 방금 연 학기 되돌리기: 새 학기 지움 + 지난 학기 보관
   const P = `/api/orgs/${orgA}`;
   await seed(f);
   const c = await f.as('adminA');
-  assert.equal((await c.call('GET', `${P}/terms/undo-new-semester`)).json.ok, false); // 새 학기를 연 적 없음
+  const chk0 = (await c.call('GET', `${P}/terms/undo-new-semester`)).json;
+  assert.equal(chk0.ok, false); // 새 학기를 연 적 없음
+  assert.match(chk0.reason, /되돌릴 학기가 없습니다 — .*「새 학기 시작」 직후에만/);
   assert.equal((await c.call('POST', `${P}/terms/undo-new-semester`, {})).status, 409);
 
   const ns = await c.call('POST', `${P}/terms/new-semester`, { confirm: true });

@@ -332,9 +332,9 @@ export async function undoNewSemesterCheck(db, orgId, { lock = false } = {}) {
   const no = (reason) => ({ ok: false, reason });
   const guard = lock ? 'FOR UPDATE' : '';
   const cur = (await db.query(`SELECT id, year, semester FROM term WHERE org_id = $1 AND status = '진행' AND deleted_at IS NULL ORDER BY year DESC, semester DESC LIMIT 1 ${guard}`, [orgId])).rows[0];
-  if (!cur) return no('진행 중인 학기가 없습니다');
+  if (!cur) return no('되돌릴 학기가 없습니다 — 이 단추는 「새 학기 시작」 직후에만 씁니다');
   const log = (await db.query(`SELECT before FROM audit_log WHERE org_id = $1 AND action = 'term.new_semester' AND after->>'id' = $2 ORDER BY id DESC LIMIT 1`, [orgId, String(cur.id)])).rows[0];
-  if (!log?.before?.id) return no('지금 학기는 「새 학기 시작」으로 연 학기가 아니라 되돌릴 수 없습니다');
+  if (!log?.before?.id) return no('되돌릴 학기가 없습니다 — 지금 학기는 「새 학기 시작」으로 연 것이 아닙니다. 이 단추는 「새 학기 시작」 직후에만 씁니다');
   const prev = (await db.query(`SELECT id, year, semester FROM term WHERE id = $1 AND org_id = $2 AND status = '보관' AND deleted_at IS NULL`, [log.before.id, orgId])).rows[0];
   if (!prev) return no('지난 학기가 이미 보관 상태가 아니거나 없어져 되돌릴 수 없습니다');
   const used = (await db.query(
