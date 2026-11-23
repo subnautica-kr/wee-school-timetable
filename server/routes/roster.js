@@ -6,6 +6,7 @@ import { createAccount, resetPassword, ID_RE } from '../accounts.js';
 import { getRuleLevels } from '../rules.js';
 import { currentTerm } from './school.js';
 import { audit, killSessions } from '../audit.js';
+import { inTx, removeWithCascade } from '../cascade.js';
 import { CEIL, dutyFromText, dutyKnown, dutyWarnings, limitWarnings, loadConfig, withWarnings } from '../orgConfig.js';
 
 // 명단 탭 — 줄 = 계정. 관리자만(school.manage). 모든 쿼리에 membership.org_id = req.orgId.
@@ -134,6 +135,21 @@ export function rosterRouter(pool) {
   });
 
   // 수동 잠금(전출·퇴직) / 해제(실패 자동 잠금도 같이 풀린다)
+  // 소속 떼기 — 이 기관 멤버십만 지운다(계정·다른 기관 소속은 그대로). 딸린 것은 cascade 묶음으로 남아 휴지통에서 되살린다.
+  r.delete('/:mid', async (req, res, next) => {
+    try {
+      const t = await target(req);
+      if (!t) return nf(res);
+      if (t.user_id === req.session.userId) return res.status(409).json({ error: '내 소속은 뗄 수 없습니다' });
+      if (t.role === '기관관리자' && (await activeAdmins(req.orgId)) <= 1) return res.status(409).json({ error: '마지막 관리자는 뗄 수 없습니다' });
+      const out = await inTx(pool, (c) => removeWithCascade(c, req.orgId, 'membership', t.id, req.session.userId));
+      if (!out) return nf(res);
+      await audit(pool, { ...me(req), action: 'membership.delete', table: 'membership', rowId: t.id, after: { name: out.label, batch: out.batchId } });
+      res.json({ ok: true, batchId: out.batchId });
+    } catch (e) {
+      e.expose ? res.status(e.status).json({ error: e.message }) : next(e);
+    }
+  });
   r.post('/:mid/lock', async (req, res, next) => {
     try {
       const t = await target(req);

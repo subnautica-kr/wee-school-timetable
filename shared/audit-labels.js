@@ -9,7 +9,7 @@ export const ACTION_LABEL = {
   'school.quick_start': '빠른 시작(반·교시 한 번에 만듦)', 'small-school.save': '작은 학교 설정 저장', 'soft-weights.save': '권장 규칙 설정 저장',
   'substitute.assign': '보결 지정', 'substitute.cancel': '보결 취소', 'substitute.create': '보결 올림', 'substitute.release': '보결 풂', 'substitute.take': '보결 맡음',
   'classroom.delete': '반 지움', 'special_room.delete': '특별실 지움', 'subject.delete': '교과 지움', 'trash.restore': '지운 것 되살림',
-  'term.import_previous': '지난 학기 가져옴', 'term.new_semester': '새 학기 시작',
+  'term.import_previous': '지난 학기 가져옴', 'term.new_semester': '새 학기 시작', 'term.clear': '이번 학기 비움', 'term.undo_new_semester': '새 학기 시작 되돌림', 'membership.delete': '교사 소속 뗌',
   'timetable.confirm': '시간표 확정', 'timetable.edit_confirmed': '확정본 직접 고침', 'timetable.save': '시안 저장', 'timetable.delete': '시간표 지움',
 };
 export const TABLE_LABEL = {
