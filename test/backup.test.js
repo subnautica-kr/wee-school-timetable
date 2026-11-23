@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HAS_DB, setup } from './sec-helpers.js';
+import { readdirSync } from 'node:fs';
+const LAST_MIGRATION = readdirSync(new URL('../server/migrations/', import.meta.url)).filter((f) => f.endsWith('.sql')).sort().at(-1).slice(0, -'.sql'.length); // 마지막 마이그레이션 — 새 판이 더해도 따라간다
 
 test('학교 자료 내려받기(백업)', { skip: !HAS_DB }, async (t) => {
   const f = await setup(t);
@@ -19,7 +21,7 @@ test('학교 자료 내려받기(백업)', { skip: !HAS_DB }, async (t) => {
     assert.match(res.headers.get('content-disposition'), /^attachment; filename="backup-.+-\d{8}\.json"/);
     assert.equal(res.json.format, 'wee-timetable-backup');
     assert.equal(res.json.version, 1);
-    assert.equal(res.json.schemaVersion, '010_duty');
+    assert.equal(res.json.schemaVersion, LAST_MIGRATION);
     assert.equal(res.json.org.id, f.orgA);
     const log = await pool.query(`SELECT 1 FROM audit_log WHERE org_id = $1 AND action = 'org.backup'`, [f.orgA]);
     assert.equal(log.rowCount, 1);
