@@ -5,6 +5,7 @@ import { downloadTemp } from './csv.js';
 import { dutyOptions, roleLabel, useOrgConfig } from '../orgConfig.js';
 
 const ROLES = ['기관관리자', '교직원', '보기만'];
+import { homeroomView } from './homeroomView.js';
 const FIELDS = [['name', '이름'], ['loginId', 'ID'], ['role', '역할'], ['duty', '담임/전담']];
 
 const download = downloadTemp;
@@ -20,8 +21,13 @@ export default function Roster({ orgId }) {
   const [imp, setImp] = useState(null); // 열 맞추기 상태
   const [result, setResult] = useState(null);
 
-  const load = () => api('GET', base).then(setRows).catch((e) => setErr(e.message));
+  const [classes, setClasses] = useState([]);
+  const load = () => {
+    api('GET', `/orgs/${orgId}/classrooms`).then(setClasses).catch(() => setClasses([])); // 반 열·담임 빠짐 상자용 — 못 받아도 명단은 그린다
+    return api('GET', base).then(setRows).catch((e) => setErr(e.message));
+  };
   useEffect(() => { load(); }, [orgId]);
+  const hv = homeroomView(rows, classes);
   const run = async (fn) => {
     setErr('');
     try { await fn(); await load(); } catch (e) { setErr(e.message); }
@@ -110,6 +116,12 @@ export default function Roster({ orgId }) {
         <FileButton onChange={pick} accept=".xlsx">{(p) => <Button variant="default" {...p}>엑셀 올리기</Button>}</FileButton>
       </Group>
 
+      {(hv.noClass.length > 0 || hv.noTeacher.length > 0) && (
+        <Alert color="yellow" title="담임이 빠진 곳이 있습니다">
+          {hv.noClass.length > 0 && <Text size="sm">맡은 반이 없는 담임 교사: {hv.noClass.join(', ')}</Text>}
+          {hv.noTeacher.length > 0 && <Text size="sm">담임이 안 붙은 반: {hv.noTeacher.join(', ')}</Text>}
+        </Alert>
+      )}
       <Stack gap="xs" hiddenFrom="sm">
         {rows.map((m) => (
           <Paper key={m.id} withBorder p="sm" opacity={m.listStatus === '숨김' ? 0.5 : 1}>
@@ -117,19 +129,20 @@ export default function Roster({ orgId }) {
               <Text fw={600}>{m.name}{m.duty && <Text span size="xs" c="dimmed"> {m.duty}</Text>}</Text>
               <div>{stateBadge(m)}</div>
             </Group>
-            <Text size="xs" c="dimmed" mb={4}>ID {m.loginId} · 마지막 로그인 {m.lastLogin ? new Date(m.lastLogin).toLocaleString('ko-KR') : '-'}</Text>
+            <Text size="xs" c="dimmed" mb={4}>ID {m.loginId} · 반 {hv.byMember[m.id] || '-'} · 마지막 로그인 {m.lastLogin ? new Date(m.lastLogin).toLocaleString('ko-KR') : '-'}</Text>
             <Stack gap={6}>{roleSel(m)}<Group gap="xs">{actions(m)}</Group></Stack>
           </Paper>
         ))}
       </Stack>
       <Table.ScrollContainer minWidth={700} visibleFrom="sm">
         <Table striped>
-          <Table.Thead><Table.Tr><Table.Th>이름</Table.Th><Table.Th>ID</Table.Th><Table.Th>역할</Table.Th><Table.Th>상태</Table.Th><Table.Th>마지막 로그인</Table.Th><Table.Th /></Table.Tr></Table.Thead>
+          <Table.Thead><Table.Tr><Table.Th>이름</Table.Th><Table.Th>ID</Table.Th><Table.Th>반</Table.Th><Table.Th>역할</Table.Th><Table.Th>상태</Table.Th><Table.Th>마지막 로그인</Table.Th><Table.Th /></Table.Tr></Table.Thead>
           <Table.Tbody>
             {rows.map((m) => (
               <Table.Tr key={m.id} opacity={m.listStatus === '숨김' ? 0.5 : 1}>
                 <Table.Td>{m.name}{m.duty && <Text span size="xs" c="dimmed"> {m.duty}</Text>}</Table.Td>
                 <Table.Td>{m.loginId}</Table.Td>
+                <Table.Td>{hv.byMember[m.id] || '-'}</Table.Td>
                 <Table.Td>{roleSel(m)}</Table.Td>
                 <Table.Td>{stateBadge(m)}</Table.Td>
                 <Table.Td>{m.lastLogin ? new Date(m.lastLogin).toLocaleString('ko-KR') : '-'}</Table.Td>

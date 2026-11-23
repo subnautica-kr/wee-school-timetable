@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Alert, Badge, Button, Group, MultiSelect, NumberInput, Select, Stack, Switch, Table, Tabs, Text, TextInput } from '@mantine/core';
 import { api } from '../api.js';
 import { buildTimes, rowsOf } from './periodTimes.js';
+import { numOfText } from './numberText.js';
 
 // 학교 기본 · 전담·비교과 · 시수표 · 고정·금지 · 규칙 수위 거부 없이 저장하고 알림만 띄운다.
 import { useOrgConfig } from '../orgConfig.js';
@@ -241,7 +242,7 @@ function Basics({ P, admin }) {
             <Table.Td>{g}학년</Table.Td>
             <Table.Td><NumberInput aria-label={`${g}학년 교시 수`} disabled={!admin} min={1} description={`기관 기준 ${org.limits.periods}`} value={grades[g]?.periods ?? ''} onChange={(v) => v && run(() => setG(g, { periods: v }))()} w={80} suffix="교시" /></Table.Td>
             <Table.Td><LunchInput key={`${g}:${grades[g]?.lunch ?? ''}`} label={`${g}학년 점심 시각`} disabled={!admin} value={grades[g]?.lunch ?? ''} onSave={(v) => run(() => setG(g, { lunch: v }))()} /></Table.Td>
-            <Table.Td><NumberInput aria-label={`${g}학년 점심은 몇 교시 뒤`} disabled={!admin} min={0} max={org.limits.periods} allowDecimal={false} placeholder="점심" key={`${g}:la:${grades[g]?.lunchAfter ?? ''}`} defaultValue={grades[g]?.lunchAfter ?? ''} onBlur={(e) => { const t = e.currentTarget.value.trim(); const v = t === '' ? undefined : Number(t); if (v !== grades[g]?.lunchAfter) run(() => setG(g, { lunchAfter: v }))(); }} w={110} suffix="교시 뒤" /></Table.Td>
+            <Table.Td><NumberInput aria-label={`${g}학년 점심은 몇 교시 뒤`} disabled={!admin} min={0} max={org.limits.periods} allowDecimal={false} placeholder="점심" key={`${g}:la:${grades[g]?.lunchAfter ?? ''}`} defaultValue={grades[g]?.lunchAfter ?? ''} onBlur={(e) => { const n = numOfText(e.currentTarget.value); const v = n === null ? undefined : n; if (v !== grades[g]?.lunchAfter) run(() => setG(g, { lunchAfter: v }))(); }} w={110} suffix="교시 뒤" /></Table.Td>
             <Table.Td><GradeTimes label={`${g}학년`} n={grades[g]?.periods || 5} times={grades[g]?.times} disabled={!admin} onSave={(t) => run(() => setG(g, { times: t }))()} /></Table.Td>
           </Table.Tr>
         ))}
@@ -353,7 +354,7 @@ function Loads({ P, admin }) {
             <Table.Td>
               {admin ? (
                 <Group gap="xs" wrap="nowrap">
-                  <NumberInput aria-label="시수" min={0} allowDecimal={false} key={`${l.id}:${l.weekly_hours}`} defaultValue={l.weekly_hours} onBlur={(e) => { const v = Number(e.currentTarget.value); if (e.currentTarget.value !== '' && v !== l.weekly_hours) patch(l, { weekly_hours: v }); }} w={70} suffix="시수" />
+                  <NumberInput aria-label="시수" min={0} allowDecimal={false} key={`${l.id}:${l.weekly_hours}`} defaultValue={l.weekly_hours} onBlur={(e) => { const v = numOfText(e.currentTarget.value); if (v !== null && v !== l.weekly_hours) patch(l, { weekly_hours: v }); }} w={70} suffix="시수" />
                   <Switch size="xs" label="연강" checked={l.block === 2} onChange={(e) => patch(l, { block: e.currentTarget.checked ? 2 : 1 })} />
                   {l.sync_progress && <Text size="xs" c="dimmed">진도 맞춤</Text>}
                 </Group>
