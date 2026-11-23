@@ -30,6 +30,14 @@ test('DB 통째 백업·되넣기', { skip: (!HAS_DB && 'DB 없음') || (!SAFE_D
   const lines = [];
   const { counts } = await dumpDb(SRC, file, (s) => lines.push(s));
 
+  // 되넣을 시험 DB 가 없으면 만든다(CI 처럼 새 DB 서버에서도 돌게 — 11-23 GitHub 시험이 이것 하나로 빨갰다)
+  const admin = new pg.Client({ connectionString: SRC });
+  await admin.connect();
+  const dbName = new URL(DST).pathname.slice(1);
+  const { rowCount } = await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
+  if (!rowCount) await admin.query(`CREATE DATABASE ${dbName}`);
+  await admin.end();
+
   // 되넣을 DB 를 비운다(스키마째)
   const dst = new pg.Client({ connectionString: DST });
   await dst.connect();
