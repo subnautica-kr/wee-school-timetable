@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, Badge, Button, Paper, Stack, Table, Text, Title } from '@mantine/core';
 import { api } from '../api.js';
-import { KIND_NAME, effectLines } from '../deleteDialog.js';
+import { KIND_NAME, effectLines, kindTag } from '../deleteDialog.js';
 
 // 지운 것 보관함 — 기관 관리자가 지운 묶음을 언제·무엇·딸린 수로 보고 되살린다. 되살릴 수 없으면 서버가 이유(409)를 준다.
 export default function TrashBox({ orgId }) {
@@ -30,7 +30,7 @@ export default function TrashBox({ orgId }) {
                 {rows.map((b) => (
                   <Table.Tr key={b.id}>
                     <Table.Td>{new Date(b.created_at).toLocaleString('ko-KR')}{b.created_by_name && <Text size="xs" c="dimmed">{b.created_by_name}</Text>}</Table.Td>
-                    <Table.Td>{b.label} <Text span size="xs" c="dimmed">{KIND_NAME[b.kind] ?? b.kind}</Text></Table.Td>
+                    <Table.Td>{b.label} <Text span size="xs" c="dimmed">{kindTag(b.label, b.kind)}</Text></Table.Td>
                     <Table.Td><Text size="xs">{effectLines({ effects: b.effects || [] }).join(' · ') || '-'}</Text></Table.Td>
                     <Table.Td>{b.restored_at ? <Badge color="gray">되살림</Badge> : <Button size="xs" variant="default" onClick={() => restore(b)}>되살리기</Button>}</Table.Td>
                   </Table.Tr>
