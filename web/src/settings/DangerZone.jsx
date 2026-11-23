@@ -36,7 +36,7 @@ export default function DangerZone({ P }) {
   const [level, setLevel] = useState('timetable');
   const [msg, setMsg] = useState(null);
   const [del, delBox] = useDelete();
-  const load = () => { api('GET', `${P}/term`).then(setTerm).catch(() => setTerm(null)); api('GET', `${P}/terms/undo-new-semester`).then(setUndo).catch((e) => setUndo({ ok: false, reason: e.message })); };
+  const load = () => { api('GET', `${P}/term`).then(setTerm).catch(() => setTerm(null)); api('GET', `${P}/terms/undo-new-semester`).then(setUndo).catch((e) => setUndo({ ok: false, reason: [403, 404].includes(e.status) ? '이 학교의 관리 권한이 있는 계정만 되돌릴 수 있습니다' : e.message })); };
   useEffect(load, [P]); // eslint-disable-line
   const done = (text) => () => { setMsg(text); load(); };
   const name = term ? `${term.year}년 ${term.semester}학기` : '';

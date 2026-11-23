@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { FEATURE_KEYS, MENU_FEATURES, featuresUpTo, visibleMenus, offNotice } from '../shared/features.js';
+import { FEATURE_KEYS, MENU_FEATURES, featuresUpTo, visibleMenus, offNotice, FEATURE_DATA } from '../shared/features.js';
 
 const ALL = ['roster', 'school', 'grid', 'gen', 'softset', 'orgcfg', 'out', 'mine', 'att', 'sub', 'rooms', 'audit', 'feat', 'me'];
 const items = ALL.map((v) => ({ v, show: true }));
@@ -27,6 +27,8 @@ test('끌 때 안내: 건수·지우는 곳이 들어가고 0건·못 센 경우
   assert.match(offNotice('pins', 12), /자료는 남아요 \(12칸\)/);
   assert.match(offNotice('pins', 12), /고정·금지/);
   assert.match(offNotice('sub', 500), /500건 이상/);
+  assert.match(offNotice('rooms', 2), /자료는 남아요 \(2개\)/);
+  assert.equal(FEATURE_DATA.rooms.count([{}, {}]), 2); // 특별실 2개를 센다(예약 0건이어도)
   assert.match(offNotice('loads', 0), /남은 자료는 없습니다/);
   assert.ok(!/\(\d/.test(offNotice('gen', undefined)) && /자료는 남아요/.test(offNotice('gen', undefined)));
 });
