@@ -46,15 +46,18 @@ test('8번: 점심 시각만 넣은 학년은 생성 재료의 점심 자리(L)�
   assert.match(s, /L: g\.lunchAfter \|\| 0/);
 });
 
-test('9번: 하교 판정은 요일을 안 본다 · 확정 전 빈칸 수도 요일별 교시를 모른다', () => {
-  const cfg = { grades: { 1: { periods: 5 } } };
+test('9번(T-1205 고침): 하교 판정·확정 전 빈칸 수가 요일별 교시 수를 본다', () => {
+  const plain = { grades: { 1: { periods: 5 } } };
+  const cfg = { grades: { 1: { periods: 5, byDay: { 3: 4 } } } }; // 수요일만 4교시
   const members = [{ id: 1, name: '가', duty: '담임', homeroom: { id: 10, grade: 1 } }];
-  const grade = (weekday) => rankCandidates(baseCtx({ weekday, period: 6, periodConfig: cfg, members })).candidates[0]?.grade;
-  assert.equal(grade(1), 'B');
-  assert.equal(grade(3), 'B'); // 수요일에 일찍 끝나는 학교도 같은 판정 — 고칠 것: T-1205
-  assert.match(src('server/candidates.js'), /period > g\.periods/);
-  // 빈칸 수: 학년 교시 수 × 5 고정
-  assert.equal(emptyCount([{ grade: 1 }], cfg, []), 25); // 고칠 것: T-1205 (요일별 교시 수)
+  const grade = (c, weekday, period) => rankCandidates(baseCtx({ weekday, period, periodConfig: c, members })).candidates[0]?.grade;
+  assert.equal(grade(plain, 1, 6), 'B');
+  assert.equal(grade(plain, 3, 5), undefined); // 요일별 값이 없으면 지금과 같다(5교시는 수업 중)
+  assert.equal(grade(cfg, 1, 5), undefined); // 월요일 5교시는 수업 중
+  assert.equal(grade(cfg, 3, 5), 'B'); // 수요일 5교시는 하교 뒤
+  assert.doesNotMatch(src('server/candidates.js'), /period > g\.periods/);
+  assert.equal(emptyCount([{ grade: 1 }], plain, []), 25); // 옛 자료는 그대로
+  assert.equal(emptyCount([{ grade: 1 }], cfg, []), 24); // 5+5+4+5+5
 });
 
 test('7번: 큰 학교를 담임 시수 없이 심으면 빠진 교사 알림이 한 상자(56명)', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {

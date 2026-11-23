@@ -3,6 +3,7 @@ import { Alert, Badge, Button, Group, MultiSelect, NumberInput, Select, Stack, S
 import { api } from '../api.js';
 import { buildTimes, rowsOf } from './periodTimes.js';
 import { numOfText } from './numberText.js';
+import { periodsMax } from '../../../shared/periods.js';
 
 // 학교 기본 · 전담·비교과 · 시수표 · 고정·금지 · 규칙 수위 거부 없이 저장하고 알림만 띄운다.
 import { useOrgConfig } from '../orgConfig.js';
@@ -66,6 +67,32 @@ function GradeTimes({ label, n, times, disabled, onSave }) {
     <Stack gap={4}>
       <Button size="compact-xs" variant="subtle" aria-label={`${label} 교시 시각 넣기`} onClick={() => setOpen(!open)}>{open ? '교시 시각 접기' : `교시 시각 넣기${times?.length ? ' (넣음)' : ''}`}</Button>
       {open && <TimesTable n={n} times={times} disabled={disabled} onSave={onSave} />}
+    </Stack>
+  );
+}
+// 요일별 교시 수 — 접어 둔다(T-1205). 비운 요일은 학년 교시 수를 쓴다. 안 펴는 학교는 지금과 같다.
+// 숫자 칸은 numOfText 로 읽는다(「4교시」처럼 글자가 붙어도 4 — T-1204f 결함 되풀이 금지)
+function ByDay({ label, days, base, byDay, disabled, onSave }) {
+  const has = Object.keys(byDay ?? {}).length > 0;
+  const [open, setOpen] = useState(has);
+  const save = (w, raw) => {
+    const n = numOfText(raw);
+    const cur = byDay?.[String(w)];
+    if ((n ?? undefined) === cur) return;
+    const next = { ...(byDay ?? {}) };
+    if (n && n > 0) next[String(w)] = n; else delete next[String(w)];
+    onSave(Object.keys(next).length ? next : undefined);
+  };
+  return (
+    <Stack gap={4}>
+      <Button size="compact-xs" variant="subtle" aria-label={`${label} 요일마다 다르게`} onClick={() => setOpen(!open)}>{open ? '요일별 접기' : `요일마다 다르게${has ? ' (넣음)' : ''}`}</Button>
+      {open && (
+        <Group gap={4} wrap="nowrap">
+          {days.map((d, i) => (
+            <NumberInput key={`${d}:${byDay?.[String(i + 1)] ?? ''}`} aria-label={`${label} ${d}요일 교시 수`} disabled={disabled} min={1} allowDecimal={false} label={d} placeholder={String(base)} defaultValue={byDay?.[String(i + 1)] ?? ''} onBlur={(e) => save(i + 1, e.currentTarget.value)} w={56} hideControls />
+          ))}
+        </Group>
+      )}
     </Stack>
   );
 }
@@ -220,7 +247,7 @@ function Basics({ P, admin }) {
   const [saved, setSaved] = useState('');
   const setG = (g, patch) => { setSaved('저장 중…'); return api('PUT', `${P}/school/periods`, { ...(cfg?.times ? { times: cfg.times } : {}), grades: { ...grades, [g]: { periods: 5, ...grades[g], ...patch } } }).then(() => { setSaved('저장됨'); return reloadCfg(); }).catch((e) => { setSaved(''); throw e; }); };
   const saveTimes = (times) => { setSaved('저장 중…'); return api('PUT', `${P}/school/periods`, { grades, times }).then(() => { setSaved('저장됨'); return reloadCfg(); }).catch((e) => { setSaved(''); throw e; }); };
-  const maxP = Math.max(1, ...Object.values(grades).map((x) => x?.periods || 0));
+  const maxP = Math.max(1, ...Object.keys(grades).map((g) => periodsMax(cfg, g, 0)));
   return (
     <Stack>
       <Err e={error} />
@@ -243,7 +270,8 @@ function Basics({ P, admin }) {
             <Table.Td><NumberInput aria-label={`${g}학년 교시 수`} disabled={!admin} min={1} description={`기관 기준 ${org.limits.periods}`} value={grades[g]?.periods ?? ''} onChange={(v) => v && run(() => setG(g, { periods: v }))()} w={80} suffix="교시" /></Table.Td>
             <Table.Td><LunchInput key={`${g}:${grades[g]?.lunch ?? ''}`} label={`${g}학년 점심 시각`} disabled={!admin} value={grades[g]?.lunch ?? ''} onSave={(v) => run(() => setG(g, { lunch: v }))()} /></Table.Td>
             <Table.Td><NumberInput aria-label={`${g}학년 점심은 몇 교시 뒤`} disabled={!admin} min={0} max={org.limits.periods} allowDecimal={false} placeholder="점심" key={`${g}:la:${grades[g]?.lunchAfter ?? ''}`} defaultValue={grades[g]?.lunchAfter ?? ''} onBlur={(e) => { const n = numOfText(e.currentTarget.value); const v = n === null ? undefined : n; if (v !== grades[g]?.lunchAfter) run(() => setG(g, { lunchAfter: v }))(); }} w={110} suffix="교시 뒤" /></Table.Td>
-            <Table.Td><GradeTimes label={`${g}학년`} n={grades[g]?.periods || 5} times={grades[g]?.times} disabled={!admin} onSave={(t) => run(() => setG(g, { times: t }))()} /></Table.Td>
+            <Table.Td><ByDay label={`${g}학년`} days={org.weekdays} base={grades[g]?.periods || 5} byDay={grades[g]?.byDay} disabled={!admin} onSave={(b) => run(() => setG(g, { byDay: b }))()} /></Table.Td>
+            <Table.Td><GradeTimes label={`${g}학년`} n={periodsMax(cfg, g)} times={grades[g]?.times} disabled={!admin} onSave={(t) => run(() => setG(g, { times: t }))()} /></Table.Td>
           </Table.Tr>
         ))}
       </Table.Tbody></Table>

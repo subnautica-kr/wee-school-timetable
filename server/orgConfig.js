@@ -1,6 +1,7 @@
 // 기관 설정 — 학교마다 다른 값의 기본값은 여기 한 곳. 기관이 org.config 로 덮는다(하드코딩 금지 원칙).
 // 상한(limits)은 거부선이 아니라 「평소보다 큼」 경고선이다. 거부는 아래 CEIL(넓은 안전 천장)에서만 한다.
 import { FEATURES, featuresUpTo } from '../shared/features.js';
+import { periodsMax } from '../shared/periods.js';
 
 export const DEFAULTS = {
   weekdays: ['월', '화', '수', '목', '금'],
@@ -70,11 +71,11 @@ export function semesterOf(cfg, month) {
   return n || s.length || 1;
 }
 
-// 학년의 교시 수: 그 학년 칸 → 기관에 적힌 교시 수 중 가장 큰 값 → fallback. (따로 노는 기본값을 한 곳으로)
+// 학년의 (가장 긴 날) 교시 수: 그 학년 칸 → 기관에 적힌 교시 수 중 가장 큰 값 → fallback. (따로 노는 기본값을 한 곳으로)
 export function periodsOf(periodConfig, grade, fallback) {
   const g = periodConfig?.grades ?? {};
-  const own = Number(g[String(grade)]?.periods);
+  const own = periodsMax(periodConfig, grade, 0); // 요일별 교시가 있으면 가장 긴 날(T-1205)
   if (own > 0) return own;
-  const all = Object.values(g).map((x) => Number(x?.periods)).filter((n) => n > 0);
+  const all = Object.keys(g).map((k) => periodsMax(periodConfig, k, 0)).filter((n) => n > 0);
   return all.length ? Math.max(...all) : fallback;
 }

@@ -1,6 +1,7 @@
 // 시간표 → 출력용 표(시트). 세 출력(PDF·엑셀·HWPX)이 같은 시트를 읽는다.
 // 시트: { title, header: [칸...], rows: [[칸...]] } · 칸: { text, kind: null|'changche'|'specialist', shade: bool }
 import { DEFAULTS, loadConfig, periodsOf } from '../orgConfig.js';
+import { periodsOn } from '../../shared/periods.js';
 
 // 요일·교시 수는 기관 설정(config.weekdays)과 학교 기본(period_config)에서 읽는다. d.weekdays 가 없으면 기본 요일.
 const daysOf = (d) => d.weekdays ?? DEFAULTS.weekdays;
@@ -54,7 +55,8 @@ export function classSheet(d, st, classroom) {
   for (let p = 1; p <= n; p++) {
     rows.push([{ text: `${p}교시` }, ...daysOf(d).map((_, i) => {
       const c = own.find((x) => x.weekday === i + 1 && x.period === p);
-      return c ? cellView(c, ix, st) : { text: '' };
+      if (c) return cellView(c, ix, st); // 교시 수 밖이어도 있는 칸은 그대로 찍는다(지우지 않음)
+      return { text: p > periodsOn(d.periodConfig, classroom.grade, i + 1, n) ? '—' : '' }; // 그날 수업 없는 교시(요일별 교시 수)
     })]);
   }
   return { title: className(classroom), header: [{ text: '' }, ...daysOf(d).map((x) => ({ text: x }))], rows };

@@ -31,6 +31,7 @@
 - 원문이 가리킨 곳 → `server/candidates.js:48` · `shared/ttConfirm.js:2` · `web/src/gen/core.js:88·233` · `web/src/school/SchoolPage.jsx:283` · 고정·금지 `server/routes/pins.js`
 - 지금 상태 → 하교 판정 `period > g.periods` 는 요일을 안 본다(수요일에도 월요일과 같은 판정, 시험). `emptyCount` 는 `학년 교시 수 × 5` 고정이라 요일마다 교시가 다른 학교의 빈칸 수가 틀린다(시험: 1학년 5교시 → 25). 생성기도 학년당 `P` 하나.
 - 고칠 자리 → 학년 설정에 요일별 교시 수를 두고(`periods` 를 요일 배열로) 세 곳이 같은 함수를 읽게. 요일별 하교 시각은 고정·금지(pins)로 흉내 낼 수는 있다 — 그러나 보결·빈칸 수는 못 맞춘다.
+- 반영(T-1205) → `periods` 는 그대로 두고 선택 칸 `byDay`(요일 → 교시 수)를 더했다(DB 안 고침 · 비운 요일은 학년 값). 하루 교시 수는 `shared/periods.js` 의 `periodsOn(설정, 학년, 요일)` 하나로 읽는다 — 생성기(반별 요일 교시 `PD`) · 보결 하교 판정 · 확정 빈칸 수 · 격자(그날 밖은 「수업 없음」) · 출력물(「—」) · 학교 기본 「요일마다 다르게」. 시수 합이 요일별 교시 합을 넘으면 생성 화면에 알림만, 교시 수 밖에 남은 칸은 지우지 않고 확정 문구로 알린다. 시험 `test/periods-by-day.test.js` · 작은 학교 한 바퀴 둘째 판.
 
 ## 10번 — 시수표 올리기 (T-1204 반영: `GET /loads/template` · `POST /loads/preview` · `POST /loads/apply` · 화면 올리기 칸 · 반 여러 개 고르기 · 줄 고치기 · 지우기 전 확인)
 - 원문이 가리킨 곳 → `web/src/school/SchoolPage.jsx:233-262`(시수표 화면: 줄 하나씩 「줄 추가」) · `server/routes/loads.js:35·107`
