@@ -8,7 +8,6 @@ import { currentTerm, scopeTermId, ensureDefaultSubjects } from './school.js';
 import { CEIL, limitWarnings, loadConfig, withWarnings } from '../orgConfig.js';
 import { audit } from '../audit.js';
 import { generateRouter } from './generate.js';
-import { teacherSql } from '../../shared/cellTeachers.js';
 
 // 시간표(시안) 만들기 · 칸 저장 · 내 시간표. 겹침은 거부하지 않고 목록으로 저장한다.
 const id = z.coerce.number().int().positive();
@@ -78,7 +77,7 @@ export function timetablesRouter(pool) {
               (c.membership_id IS DISTINCT FROM $3) AS second
          FROM cell c JOIN classroom cl ON cl.id = c.classroom_id
          LEFT JOIN subject s ON s.id = c.subject_id LEFT JOIN special_room sr ON sr.id = c.special_room_id
-        WHERE c.org_id = $1 AND c.timetable_id = $2 AND ${teacherSql('c', '$3::bigint')} AND c.deleted_at IS NULL ORDER BY c.weekday, c.period`,
+        WHERE c.org_id = $1 AND c.timetable_id = $2 AND (c.membership_id = $3::bigint OR c.second_membership_id = $3::bigint) AND c.deleted_at IS NULL ORDER BY c.weekday, c.period`,
       [req.orgId, tt.id, me?.id ?? -1],
     )).rows;
   }

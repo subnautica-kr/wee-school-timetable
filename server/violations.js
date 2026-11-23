@@ -11,7 +11,7 @@ import { appliedTimetable } from './applied.js';
 import { loadConfig } from './orgConfig.js';
 
 import { periodTime, combinedOf, findOverlaps as sharedOverlaps } from '../shared/overlap.js';
-import { teachersOf, teacherSql } from '../shared/cellTeachers.js';
+import { teachersOf } from '../shared/cellTeachers.js';
 
 export { periodTime };
 
@@ -79,7 +79,7 @@ export async function overlapContext(pool, orgId, cells, { date } = {}) {
       if (!tt) continue;
       const rows = (await pool.query(
         `SELECT c.weekday, c.period, cl.grade FROM cell c JOIN classroom cl ON cl.id = c.classroom_id
-          WHERE c.org_id = $1 AND c.timetable_id = $2 AND ${teacherSql('c', '$3')} AND c.deleted_at IS NULL`, [l.org_id, tt.id, l.other])).rows;
+          WHERE c.org_id = $1 AND c.timetable_id = $2 AND (c.membership_id = $3 OR c.second_membership_id = $3) AND c.deleted_at IS NULL`, [l.org_id, tt.id, l.other])).rows;
       for (const r of rows) {
         const t = periodTime(l.period_config ?? {}, r.grade, r.period);
         external.push({ membership_id: Number(l.mine), weekday: r.weekday, period: r.period, start: t?.start ?? null, end: t?.end ?? null });

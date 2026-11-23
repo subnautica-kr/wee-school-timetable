@@ -8,7 +8,6 @@ import { currentTerm } from './school.js';
 import { CEIL, limitWarnings, loadConfig, periodsOf, withWarnings } from '../orgConfig.js';
 import { audit } from '../audit.js';
 import { expandMaster } from './loads.js';
-import { teacherSql } from '../../shared/cellTeachers.js';
 
 // 자동 생성 짝 — 생성 자체는 브라우저 웹 워커가 한다. 서버는 재료 내주기 · 시안 저장 · 복제 · 삭제 · 확정만.
 // 규칙 위반은 거부하지 않고 목록으로 저장한다. 거부는 권한·기관 경계·형식뿐.
@@ -49,7 +48,7 @@ export async function externalBlockPins(pool, orgId, periods, date) {
     if (!tt) continue;
     const rows = (await pool.query(
       `SELECT c.weekday, c.period, cl.grade FROM cell c JOIN classroom cl ON cl.id = c.classroom_id
-        WHERE c.org_id = $1 AND c.timetable_id = $2 AND ${teacherSql('c', '$3')} AND c.deleted_at IS NULL`, [l.org_id, tt.id, l.other])).rows;
+        WHERE c.org_id = $1 AND c.timetable_id = $2 AND (c.membership_id = $3 OR c.second_membership_id = $3) AND c.deleted_at IS NULL`, [l.org_id, tt.id, l.other])).rows;
     for (const r of rows) {
       const t = periodTime(l.period_config ?? {}, r.grade, r.period);
       const ps = new Set();
