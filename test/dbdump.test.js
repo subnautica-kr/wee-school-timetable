@@ -52,7 +52,10 @@ test('DB 통째 백업·되넣기', { skip: (!HAS_DB && 'DB 없음') || (!SAFE_D
     assert.ok(doc.schemaMigrations.length >= 1);
     assert.ok(counts.app_user >= 9 && counts.cell > 0, '예시 학교가 덤프에 있다');
     assert.ok(lines.some((l) => /^app_user\s+\d+$/.test(l.trim())));
-    assert.ok(!raw.includes(new URL(SRC).password || '\u0000'), '비밀번호가 파일에 없다');
+    assert.ok(!raw.includes(SRC), '접속 주소가 파일에 없다');
+    // 짧은 비밀번호(CI 의 'ci')는 아무 낱말에나 들어 있어 거짓 경보라 6자 이상만 찾는다
+    const pw = new URL(SRC).password;
+    if (pw.length >= 6) assert.ok(!raw.includes(pw), '비밀번호가 파일에 없다');
     assert.ok(raw.includes('$argon2'), '비밀 열(해시)은 그대로 든다');
   });
 
