@@ -104,6 +104,7 @@ function Generator({ P, input, onSaved }) {
     } catch (e) { setMsg({ color: 'red', text: e.message }); }
   };
 
+  const noLunch = [...new Set(input.classrooms.map((c) => c.grade))].sort((x, y) => x - y).filter((g) => !(input.periods?.grades?.[g]?.lunchAfter > 0)); // 알림만, 막지 않는다
   return (
     <Stack>
       <Alert color="blue" title={<>명단과 <Term k="시수표">시수표</Term>를 다 넣었으면 <Term k="시안">시안</Term>을 만듭니다</>}>{softOn ? NOTICE : NOTICE.replace(SOFT_TAB_SENTENCE, '4단계(생성 설정)를 켜면 가중을 바꿀 수 있습니다.')}</Alert>
@@ -113,6 +114,7 @@ function Generator({ P, input, onSaved }) {
         <NumberInput label="후보당 초" min={0.5} max={60} step={0.5} decimalScale={1} w={100} value={opt.sec} onChange={(v) => setOpt({ sec: Number(v) })} />
         <Switch label="전담 식사 빈 칸 필수" description="전담 선생님이 점심때 쉴 칸을 꼭 비워 둡니다. 끄면 그 칸에도 수업이 들어갈 수 있습니다." checked={opt.mealGap} onChange={(e) => setOpt({ mealGap: e.currentTarget.checked })} />
       </Group>
+      {noLunch.length > 0 && <Text size="sm" c="yellow.8">{noLunch.map((g) => `${g}학년`).join('·')}은 점심 자리가 비어 점심 규칙을 건너뜁니다. 「학교」 화면 학년별 교시·점심에서 「점심은 몇 교시 뒤」를 넣으면 적용됩니다.</Text>}
       {!opt.mealGap && <Text size="sm" c="yellow.8">식사 빈 칸을 필수에서 뺐습니다. 대신 권장 점수의 「교사 점심시간 확보」가 세어 줍니다.</Text>}
       <Group align="end">
         <Button onClick={() => start(false)} loading={!!run} disabled={!input.classrooms.length}>자동 생성 (후보 {opt.k}개 · 최대 {opt.k * opt.sec}초)</Button>
