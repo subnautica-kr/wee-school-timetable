@@ -5,6 +5,7 @@
 
 import { findOverlaps } from './overlap.js';
 import { periodsOn } from '../../../shared/periods.js';
+import { teachersOf } from '../../../shared/cellTeachers.js';
 
 export const HARD_RULES = [
   '한 반 한 시각 한 과목',
@@ -115,6 +116,23 @@ export function prepare(input) {
   for (const ids of byKind.values()) if (ids.length > 1) for (const id of ids) poolOf.set(String(id), ids);
   const lessons = [];
   const skipped = [];
+  const warnings = []; // 준비 단계 알림(막지 않음) — solve 결과 warnings 에 붙는다
+  // 둘째 교사(6번 T-1206): 줄의 「함께 시수」(second_hours · 비면 그 줄 시수 전부)만큼 앞 묶음부터 붙인다.
+  // 연강 묶음은 쪼개지 않는다 — 남은 함께 시수보다 묶음이 길어도 통째로 붙이고 second_block 을 알린다.
+  const secondOf = (l, t, hours) => {
+    const sec = l.second_membership_id ?? null;
+    const t2 = sec == null || sec === '' ? -1 : key(tIdx, sec);
+    if (t2 < 0 || t2 === t) return { sec: null, t2: -1, left: 0 };
+    const h2 = l.second_hours == null ? hours : Math.max(0, Math.floor(l.second_hours));
+    return { sec, t2, left: h2 };
+  };
+  const attach = (S, span, l) => {
+    if (S.t2 < 0 || S.left <= 0) return { t2: -1, sec: null };
+    if (span > S.left) warnings.push({ rule: 'second_block', classroom_id: l.classroom_id, subject_id: l.subject_id, second_membership_id: S.sec, hours: span, second_hours: S.left });
+    S.left -= span;
+    return { t2: S.t2, sec: S.sec };
+  };
+  const tsOf = (t, t2) => [t, t2].filter((x, i, a) => x >= 0 && a.indexOf(x) === i);
   const small = applySmall(input);
   // 복식 묶음: 한 수업이 여러 반을 같은 교시에 차지한다(cs · lines). 진도 맞춤에서는 뺀다.
   for (const j of small.joint) {
@@ -125,9 +143,11 @@ export function prepare(input) {
     const rs = j.lines.map((l) => key(rIdx, l.special_room_id));
     const blk = Math.max(1, Math.min(3, Math.floor(l0.block) || 1));
     let h = j.hours;
+    const S = secondOf(l0, t, j.hours);
     while (h > 0) {
       const span = Math.min(blk, h);
-      lessons.push({ id: lessons.length, c: cs[0], cs, t, r: rs[0], rs: [...new Set(rs.filter((x) => x >= 0))], s: l0.subject_id, span, sync: false, line: l0, lines: j.lines, fixed: false, d: -1, p: -1 });
+      const { t2, sec } = attach(S, span, l0);
+      lessons.push({ id: lessons.length, c: cs[0], cs, t, t2, ts: tsOf(t, t2), sec, r: rs[0], rs: [...new Set(rs.filter((x) => x >= 0))], s: l0.subject_id, span, sync: false, line: l0, lines: j.lines, fixed: false, d: -1, p: -1 });
       h -= span;
     }
   }
@@ -139,10 +159,12 @@ export function prepare(input) {
     const r = key(rIdx, l.special_room_id);
     let h = l.weekly_hours;
     const blk = Math.max(1, Math.min(3, Math.floor(l.block) || 1));
+    const S = secondOf(l, t, l.weekly_hours);
     while (h > 0) {
       const span = Math.min(blk, h);
       const pool = l.special_room_id != null ? poolOf.get(String(l.special_room_id)) : null;
-      lessons.push({ id: lessons.length, c: ci, cs: [ci], t, r, rs: r >= 0 ? [r] : [], s: l.subject_id, span, sync: !!l.sync_progress, line: l, lines: null, fixed: false, d: -1, p: -1, ...(pool ? { alt: pool.map((x) => key(rIdx, x)) } : {}) });
+      const { t2, sec } = attach(S, span, l);
+      lessons.push({ id: lessons.length, c: ci, cs: [ci], t, t2, ts: tsOf(t, t2), sec, r, rs: r >= 0 ? [r] : [], s: l.subject_id, span, sync: !!l.sync_progress, line: l, lines: null, fixed: false, d: -1, p: -1, ...(pool ? { alt: pool.map((x) => key(rIdx, x)) } : {}) });
       h -= span;
     }
   }
@@ -171,7 +193,7 @@ export function prepare(input) {
   }
   // 교사별 식사 후보 시각(가르치는 학년들의 점심 칸)
   const lunchClocks = Array.from({ length: nT }, () => new Set());
-  for (const L of lessons) for (const c of L.cs) if (!off.has('teacherMealGap') && L.t >= 0 && classes[c].L > 0) lunchClocks[L.t].add(classes[c].L + 1);
+  for (const L of lessons) for (const c of L.cs) for (const t of L.ts) if (!off.has('teacherMealGap') && classes[c].L > 0) lunchClocks[t].add(classes[c].L + 1);
   // 진도 맞춤 묶음: 교사 × 학년 × 과목
   const groups = new Map();
   for (const L of lessons) {
@@ -182,7 +204,7 @@ export function prepare(input) {
     L.g = gk;
   }
   const ids = { teachers: [...tIdx.keys()], rooms: [...rIdx.keys()] };
-  return { orig, days: DAYS, small: input.small || null, joint: small.joint.length, classes, lessons, nC, nT, nR, classBlock, teachBlockP, roomBlockC, fixedReq, lunchClocks: lunchClocks.map((s) => [...s]), groups, skipped, ids };
+  return { orig, days: DAYS, small: input.small || null, joint: small.joint.length, classes, lessons, nC, nT, nR, classBlock, teachBlockP, roomBlockC, fixedReq, lunchClocks: lunchClocks.map((s) => [...s]), groups, skipped, ids, warnings };
 }
 
 // 한 후보 풀기. 상태는 prep 안 lessons 의 d/p 와 점유 배열.
@@ -203,7 +225,7 @@ export function solve(prep, { seed = 1, strategy = 0, deadline = Date.now() + 30
         const pp = p + i;
         const cc = clockOf(k.L, pp);
         classOcc[(c * DAYS + d) * W + pp] = v;
-        if (L.t >= 0) teachOcc[(L.t * DAYS + d) * W + cc] = v;
+        for (const t of L.ts) teachOcc[(t * DAYS + d) * W + cc] = v; // 교사 둘이면 둘 다 차지
         for (const r of L.rs) roomOcc[(r * DAYS + d) * W + cc] = v;
       }
     }
@@ -244,9 +266,9 @@ export function solve(prep, { seed = 1, strategy = 0, deadline = Date.now() + 30
         if (classBlock[(c * DAYS + d) * W + pp]) return -1;
         occs.length = 0;
         occs.push(classOcc[(c * DAYS + d) * W + pp]);
-        if (L.t >= 0) {
-          if (teachBlockP[(L.t * DAYS + d) * W + pp]) return -1;
-          occs.push(teachOcc[(L.t * DAYS + d) * W + cc]);
+        for (const t of L.ts) { // 두 교사 다 비어야 놓는다
+          if (teachBlockP[(t * DAYS + d) * W + pp]) return -1;
+          occs.push(teachOcc[(t * DAYS + d) * W + cc]);
         }
         for (const r of L.rs) {
           if (roomBlockC[(r * DAYS + d) * W + cc]) return -1;
@@ -261,15 +283,15 @@ export function solve(prep, { seed = 1, strategy = 0, deadline = Date.now() + 30
       }
     }
     // 식사용 빈 칸: 이 교사의 점심 후보 시각이 하루에 하나는 남아야 한다
-    if (L.t >= 0) {
-      const lc = lunchClocks[L.t];
+    for (const t of L.ts) {
+      const lc = lunchClocks[t];
       if (lc.length) {
         const mine = new Set();
         for (const c of L.cs) for (let i = 0; i < L.span; i++) mine.add(clockOf(classes[c].L, p + i));
         let free = 0;
         for (const c of lc) {
           if (mine.has(c)) continue;
-          const o = teachOcc[(L.t * DAYS + d) * W + c];
+          const o = teachOcc[(t * DAYS + d) * W + c];
           if (o < 0 || o === L.id || buf.includes(o)) free++;
         }
         if (!free) return -1;
@@ -290,13 +312,14 @@ export function solve(prep, { seed = 1, strategy = 0, deadline = Date.now() + 30
 
   // 2) 놓는 순서 — 전략마다 다르게(어려운 것 먼저가 기본)
   const tLoad = new Float64Array(Math.max(1, nT));
-  for (const L of lessons) if (L.t >= 0) tLoad[L.t] += L.span;
+  for (const L of lessons) for (const t of L.ts) tLoad[t] += L.span; // 교사 부담 — 둘째로 든 시수도 센다
+  const loadOf = (L) => L.ts.reduce((a, t) => a + tLoad[t], 0); // 교사 둘이면 두 부담을 더한다(더 어려운 수업)
   const free = lessons.filter((L) => !L.fixed);
   const jitter = new Float64Array(lessons.length).map(() => R());
-  const diff = (L) => (L.r >= 0 ? 1000 : 0) + (L.span > 1 ? 250 * L.span : 0) + (L.t >= 0 ? tLoad[L.t] * 4 : 0) + (L.sync ? 50 : 0);
+  const diff = (L) => (L.r >= 0 ? 1000 : 0) + (L.span > 1 ? 250 * L.span : 0) + loadOf(L) * 4 + (L.sync ? 50 : 0);
   if (strategy % 4 === 0) free.sort((a, b) => diff(b) - diff(a) || jitter[a.id] - jitter[b.id]);
   else if (strategy % 4 === 1) free.sort((a, b) => diff(b) + jitter[b.id] * 200 - diff(a) - jitter[a.id] * 200);
-  else if (strategy % 4 === 2) free.sort((a, b) => (b.r >= 0) - (a.r >= 0) || (b.t >= 0 ? tLoad[b.t] : 0) - (a.t >= 0 ? tLoad[a.t] : 0) || a.c - b.c);
+  else if (strategy % 4 === 2) free.sort((a, b) => (b.r >= 0) - (a.r >= 0) || loadOf(b) - loadOf(a) || a.c - b.c);
   else free.sort((a, b) => jitter[a.id] - jitter[b.id]);
 
   // 하루에 같은 과목이 이미 있으면 덜 좋다(골고루 — 성립엔 무관한 가벼운 선호)
@@ -440,13 +463,13 @@ export function solve(prep, { seed = 1, strategy = 0, deadline = Date.now() + 30
     const ls = L.lines || [L.line];
     for (let j = 0; j < L.cs.length; j++) {
       for (let i = 0; i < L.span; i++) {
-        cells.push({ classroom_id: classes[L.cs[j]].id, weekday: L.d + 1, period: L.p + i, subject_id: L.s, membership_id: ls[j].membership_id ?? null, special_room_id: L.alt ? (prep.orig.get(prep.ids.rooms[L.rs[0]]) ?? ls[j].special_room_id ?? null) : (ls[j].special_room_id ?? null) });
+        cells.push({ classroom_id: classes[L.cs[j]].id, weekday: L.d + 1, period: L.p + i, subject_id: L.s, membership_id: ls[j].membership_id ?? null, ...(L.sec != null ? { second_membership_id: L.sec } : {}), special_room_id: L.alt ? (prep.orig.get(prep.ids.rooms[L.rs[0]]) ?? ls[j].special_room_id ?? null) : (ls[j].special_room_id ?? null) });
       }
     }
   }
   for (const e of extra) cells.push({ classroom_id: classes[e.c].id, weekday: e.d + 1, period: e.p, subject_id: e.s, membership_id: null, special_room_id: null });
-  const unplaced = queue.flatMap((L) => L.cs.map((c) => ({ classroom_id: classes[c].id, subject_id: L.s, membership_id: L.line.membership_id ?? null, hours: L.span, ...(L.cs.length > 1 ? { combined: true } : {}) })));
-  const warnings = unplaced.filter((u) => u.hours > 1).map((u) => ({ rule: 'block_unplaced', classroom_id: u.classroom_id, subject_id: u.subject_id, hours: u.hours })); // 연강을 못 놓음 — 막지 않고 알린다
+  const unplaced = queue.flatMap((L) => L.cs.map((c) => ({ classroom_id: classes[c].id, subject_id: L.s, membership_id: L.line.membership_id ?? null, ...(L.sec != null ? { second_membership_id: L.sec } : {}), hours: L.span, ...(L.cs.length > 1 ? { combined: true } : {}) })));
+  const warnings = [...(prep.warnings || []), ...unplaced.filter((u) => u.hours > 1).map((u) => ({ rule: 'block_unplaced', classroom_id: u.classroom_id, subject_id: u.subject_id, hours: u.hours }))]; // 연강을 못 놓음 — 막지 않고 알린다
   for (const L of queue) if (L.alt) warnings.push({ rule: 'room_pool_full', classroom_id: classes[L.c].id, subject_id: L.s, hours: L.span }); // 같은 종류 특별실이 다 차서 못 놓음 — 알리고 생성은 계속
   return { cells, unplaced, warnings, hard: unplaced.reduce((a, u) => a + u.hours, 0), rr, iter };
 }
@@ -497,7 +520,7 @@ export function generate(input, { k = 8, perMs = 3000, seed = 1, softScore = () 
     try { soft = Number(softScore({ cells: r.cells, input })) || 0; } catch { soft = 0; }
     out.push({ ...r, soft, strategy: i, ms: Date.now() - s0 });
     // candidates: 지금까지 만든 것을 줄 세운 중간 결과(탭을 닫아도 이어 쓰도록 메인 스레드가 저장한다)
-    onProgress?.({ done: i + 1, k, hard: r.hard, rr: r.rr, candidates: [...out].sort((a, b) => a.hard - b.hard || a.rr - b.rr || a.soft - b.soft).map((c, rank) => ({ rank, hard: c.hard, rr: c.rr, soft: c.soft, cells: c.cells, unplaced: c.unplaced })) });
+    onProgress?.({ done: i + 1, k, hard: r.hard, rr: r.rr, candidates: [...out].sort((a, b) => a.hard - b.hard || a.rr - b.rr || a.soft - b.soft).map((c, rank) => ({ rank, hard: c.hard, rr: c.rr, soft: c.soft, cells: c.cells, unplaced: c.unplaced, warnings: c.warnings })) });
   }
   out.sort((a, b) => a.hard - b.hard || a.rr - b.rr || a.soft - b.soft);
   return { candidates: out.map((c, rank) => ({ ...c, rank })), skipped: prep.skipped.length, ms: Date.now() - t0 };
@@ -542,9 +565,9 @@ export function currentConflicts(cells, classInfo, ctx = null) {
   for (const c of cells) {
     const info = classInfo[c.classroom_id] || { L: 0 };
     const clock = clockOf(info.L, c.period);
-    for (const [col, rule] of [['membership_id', 'teacher_overlap'], ['special_room_id', 'room_overlap']]) {
-      if (!c[col]) continue;
-      const k = `${rule}:${c[col]}:${c.weekday}:${clock}`;
+    const keys = teachersOf(c).map((t) => `teacher_overlap:${t}:${c.weekday}:${clock}`); // 첫째·둘째 교사 각각
+    if (c.special_room_id) keys.push(`room_overlap:${c.special_room_id}:${c.weekday}:${clock}`);
+    for (const k of keys) {
       if (!by.has(k)) by.set(k, []);
       by.get(k).push(c);
     }
@@ -571,7 +594,8 @@ function conflictsOf(moved, rest, classInfo) {
       if (o.classroom_id === m.classroom_id || o.weekday !== m.weekday) continue;
       const oc = clockOf((classInfo[o.classroom_id] || { L: 0 }).L, o.period);
       if (oc !== clock) continue;
-      if (m.membership_id && o.membership_id === m.membership_id) out.push({ rule: 'teacher_overlap' });
+      const ot = teachersOf(o).map(String);
+      if (teachersOf(m).some((t) => ot.includes(String(t)))) out.push({ rule: 'teacher_overlap' }); // 첫째·둘째 어느 쪽이든
       if (m.special_room_id && o.special_room_id === m.special_room_id) out.push({ rule: 'room_overlap' });
     }
   }

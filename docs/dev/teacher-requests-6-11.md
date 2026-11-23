@@ -16,6 +16,12 @@
 - 원문이 가리킨 곳 → `web/src/grid/Grid.jsx:157·169·325`(칸 편집 폼: 교사 하나만 고름) · `server/routes/timetables.js:74`(교사별 시간표가 `c.membership_id = $3` 하나로 묻는다) · `shared/overlap.js:85`(`scan('membership_id', 'teacher_overlap', …)`) · `server/candidates.js:23`(`teaching` 집합이 칸의 `membership_id` 하나만 모은다)
 - 지금 상태 → `teaching_load`·`cell` 테이블에 교사 열은 `membership_id` 하나뿐(시험이 `information_schema` 로 확인). 둘째 교사를 담을 곳이 없다.
 - 고칠 자리 → 열 추가(또는 칸-교사 연결 표) + 위 네 곳이 둘째 교사도 읽게. 겹침 검사·보결 후보의 「수업 중」 집합도 같이.
+- 반영(T-1206, DB·서버·생성기 — 화면은 T-1206c) →
+  - DB `server/migrations/011_second_teacher.sql`: 시수표 줄 `second_membership_id`·`second_hours`(함께 시수, 비우면 그 줄 시수 전부) · 시간표 칸 `second_membership_id`. 열 추가만이라 옛 자료는 그대로.
+  - 교사를 묻는 곳은 「이 칸의 교사들」 `shared/cellTeachers.js`(`teachersOf`·`hasTeacher`·`isSecondOnly`·SQL 조각 `teacherSql`) 하나를 거친다 — 겹침(서버=화면, 문구에 「둘째 교사」) · 겸임 금지 칸 · 보결 후보(둘째로 수업 중이면 빠짐) · 하루 결강(둘째로만 든 칸도 듦) · 내 시간표 · 시수표 합 · 출력(이름 「첫째·둘째」, 둘째 교사 시간표에도 그 칸) · 엑셀 「둘째 교사(선택)」·「함께 시수」 열.
+  - 생성기 `web/src/gen/core.js`: 수업마다 둘째 교사 `t2`·교사 목록 `ts` — 두 교사 다 빈 칸에만 놓고 점유·금지 칸·식사 칸·교사 부담을 `ts` 로 센다. 함께 시수만큼 앞 묶음부터 붙이고, 연강 묶음은 쪼개지 않고 통째로 붙여 알림 `second_block` 을 남긴다(막지 않음). 결과 칸에 `second_membership_id` · 수정 모드 겹침 두 곳도 `teachersOf`.
+  - 남은 것: 권장 점수(`web/src/gen/soft-adapter.js`)는 아직 첫째 교사만 센다(둘째 교사의 공강·연속 수업 선호는 안 봄 — 성립엔 무관).
+  - 시험 `test/second-teacher.test.js`(9) · 작은 학교 한 바퀴 「둘째 교사 한 줄」(생성 → 확정 → 둘째 교사 하루 결강 → 보결). 버그 심기: `teachersOf` 가 둘째를 빼게 하면 6개가 빨개짐(생성기·엑셀 시험은 `teachersOf` 를 안 거쳐 초록 그대로).
 
 ## 7번 — 빠진 교사 알림 (T-1203)
 - 원문이 가리킨 곳 → `web/src/school/SchoolPage.jsx:172·241` · `server/routes/export.js:115-129`(담임 교과 일괄 적용) · `web/src/gen/core.js:44`(`applySmall` 담임 교과 채움)

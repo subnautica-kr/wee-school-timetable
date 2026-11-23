@@ -1,4 +1,5 @@
 import { periodsOn } from '../shared/periods.js';
+import { teachersOf, hasTeacher } from '../shared/cellTeachers.js';
 
 // 보결 후보 등급 — 순수 함수(DB 없이 시험). 거부하지 않고 등급 또는 제외 사유를 붙여 목록으로 낸다.
 // 등급 A 자기 반이 전담 수업 중인 담임 · B 하교한 뒤인 담임 · C 그 시간 수업 없는 전담 · D 비교과(시간표에 수업이 하나도 없는 전담·비교과)
@@ -23,9 +24,10 @@ const DEFAULT_SUB = { order: ['A', 'B', 'C', 'D'], assistants: 'warn', lunchDuty
 export function rankCandidates(ctx) {
   const { weekday, period, periodConfig, cells, members, absentIds, pins, takenIds } = ctx;
   const at = (cid) => cells.find((c) => c.classroom_id === cid && c.weekday === weekday && c.period === period);
-  const teaching = new Set(cells.filter((c) => c.weekday === weekday && c.period === period && c.membership_id).map((c) => c.membership_id));
+  // 그 시간 수업 중 = 그 교시 칸들의 「이 칸의 교사들」(둘째 교사 포함)
+  const teaching = new Set(cells.filter((c) => c.weekday === weekday && c.period === period).flatMap(teachersOf));
   const dutyById = new Map(members.map((m) => [m.id, m.duty]));
-  const hasAnyCell = new Set(cells.filter((c) => c.membership_id).map((c) => c.membership_id));
+  const hasAnyCell = new Set(cells.flatMap(teachersOf));
   const candidates = [];
   const excluded = [];
   const sub = { ...DEFAULT_SUB, ...(ctx.config?.substitute ?? {}) };
@@ -51,6 +53,8 @@ export function rankCandidates(ctx) {
       const last = g ? periodsOn(periodConfig, m.homeroom.grade, weekday, 0) : 0; // 그 요일 교시 수(요일별 값 → 학년 기본)
       if (last && period > last) { add('B'); continue; }
       const who = cell?.membership_id;
+      // 자기 반 칸이든 다른 반 칸이든 둘째 교사로 들어가 있으면 수업 중
+      if (cells.some((c) => c.weekday === weekday && c.period === period && hasTeacher(c, m.id) && String(c.membership_id) !== String(m.id))) { out(m, 'teaching'); continue; }
       if (cell && who && who !== m.id && isSpecialist(dutyById.get(who))) { add('A'); continue; }
       if (cell && (!who || !dutyById.get(who))) { out(m, 'held'); continue; }
       out(m, 'teaching'); continue;

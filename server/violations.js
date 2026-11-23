@@ -11,6 +11,7 @@ import { appliedTimetable } from './applied.js';
 import { loadConfig } from './orgConfig.js';
 
 import { periodTime, combinedOf, findOverlaps as sharedOverlaps } from '../shared/overlap.js';
+import { teachersOf } from '../shared/cellTeachers.js';
 
 export { periodTime };
 
@@ -33,16 +34,18 @@ export function findOverlaps(cells, ctx = {}) {
   if (external.length) {
     const seen = new Set();
     for (const c of cells) {
-      if (!c.membership_id) continue;
       const mine = timeOf(c);
-      for (const x of external) {
-        if (String(x.membership_id) !== String(c.membership_id) || x.weekday !== c.weekday) continue;
-        const hit = mine && x.start != null && x.end != null ? mine.start < x.end && x.start < mine.end : x.period === c.period;
-        if (!hit) continue;
-        const k = `${c.classroom_id}:${c.weekday}:${c.period}`;
-        if (seen.has(k)) continue;
-        seen.add(k);
-        found.push({ rule: 'teacher_overlap', other_org: true, weekday: c.weekday, period: c.period, membership_id: c.membership_id, classroom_ids: [c.classroom_id], detail: `교사 겹침 — 다른 기관 수업과 (${c.weekday}요일 ${c.period}교시)` });
+      for (const t of teachersOf(c)) {
+        const second = String(t) !== String(c.membership_id);
+        for (const x of external) {
+          if (String(x.membership_id) !== String(t) || x.weekday !== c.weekday) continue;
+          const hit = mine && x.start != null && x.end != null ? mine.start < x.end && x.start < mine.end : x.period === c.period;
+          if (!hit) continue;
+          const k = `${t}:${c.classroom_id}:${c.weekday}:${c.period}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
+          found.push({ rule: 'teacher_overlap', other_org: true, weekday: c.weekday, period: c.period, membership_id: t, ...(second ? { second: true } : {}), classroom_ids: [c.classroom_id], detail: `교사 겹침${second ? '(둘째 교사)' : ''} — 다른 기관 수업과 (${c.weekday}요일 ${c.period}교시)` });
+        }
       }
     }
   }
@@ -62,7 +65,7 @@ export async function overlapContext(pool, orgId, cells, { date } = {}) {
   const combined = combinedOf(small);
 
   const external = [];
-  const mIds = [...new Set(cells.map((c) => Number(c.membership_id)).filter(Boolean))];
+  const mIds = [...new Set(cells.flatMap((c) => teachersOf(c).map(Number)).filter(Boolean))];
   if (mIds.length) {
     const links = (await pool.query(
       `SELECT m.id AS mine, o.id AS other, o.org_id, og.period_config
@@ -76,7 +79,7 @@ export async function overlapContext(pool, orgId, cells, { date } = {}) {
       if (!tt) continue;
       const rows = (await pool.query(
         `SELECT c.weekday, c.period, cl.grade FROM cell c JOIN classroom cl ON cl.id = c.classroom_id
-          WHERE c.org_id = $1 AND c.timetable_id = $2 AND c.membership_id = $3 AND c.deleted_at IS NULL`, [l.org_id, tt.id, l.other])).rows;
+          WHERE c.org_id = $1 AND c.timetable_id = $2 AND (c.membership_id = $3 OR c.second_membership_id = $3) AND c.deleted_at IS NULL`, [l.org_id, tt.id, l.other])).rows;
       for (const r of rows) {
         const t = periodTime(l.period_config ?? {}, r.grade, r.period);
         external.push({ membership_id: Number(l.mine), weekday: r.weekday, period: r.period, start: t?.start ?? null, end: t?.end ?? null });

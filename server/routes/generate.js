@@ -21,6 +21,7 @@ const cellIn = z.object({
   period: z.number().int().min(1).max(CEIL.periods),
   subject_id: ref,
   membership_id: ref,
+  second_membership_id: ref, // 둘째 교사(선택)
   special_room_id: ref,
 });
 const genIn = z.object({
@@ -28,7 +29,7 @@ const genIn = z.object({
   cells: z.array(cellIn).max(CEIL.cells),
   gen_info: z.object({ rank: z.number().int().min(0).max(100), hard: z.number().int().min(0), rr: z.number().int().min(0), soft: z.number().optional(), unplaced: z.array(z.any()).max(2000).optional() }).partial().optional(),
 });
-const REF_TABLE = { classroom_id: 'classroom', subject_id: 'subject', membership_id: 'membership', special_room_id: 'special_room' };
+const REF_TABLE = { classroom_id: 'classroom', subject_id: 'subject', membership_id: 'membership', second_membership_id: 'membership', special_room_id: 'special_room' };
 
 // 겸임 교사의 다른 기관 「오늘 적용 확정본」 칸 → 이 기관 교사 금지 칸(막힌 칸만 · 다른 기관 교과·반 이름은 안 넘긴다).
 // 시각이 양쪽에 있으면 시각이 겹치는 이 기관 교시를, 아니면 같은 교시 번호를 막는다.
@@ -47,7 +48,7 @@ export async function externalBlockPins(pool, orgId, periods, date) {
     if (!tt) continue;
     const rows = (await pool.query(
       `SELECT c.weekday, c.period, cl.grade FROM cell c JOIN classroom cl ON cl.id = c.classroom_id
-        WHERE c.org_id = $1 AND c.timetable_id = $2 AND c.membership_id = $3 AND c.deleted_at IS NULL`, [l.org_id, tt.id, l.other])).rows;
+        WHERE c.org_id = $1 AND c.timetable_id = $2 AND (c.membership_id = $3 OR c.second_membership_id = $3) AND c.deleted_at IS NULL`, [l.org_id, tt.id, l.other])).rows;
     for (const r of rows) {
       const t = periodTime(l.period_config ?? {}, r.grade, r.period);
       const ps = new Set();
@@ -88,9 +89,9 @@ export function generateRouter(pool) {
     if (!cells.length) return;
     const col = (k) => cells.map((c) => c[k] ?? null);
     await client.query(
-      `INSERT INTO cell (org_id, timetable_id, classroom_id, weekday, period, subject_id, membership_id, special_room_id)
-       SELECT $1, $2, * FROM unnest($3::bigint[], $4::int[], $5::int[], $6::bigint[], $7::bigint[], $8::bigint[])`,
-      [orgId, ttId, col('classroom_id'), col('weekday'), col('period'), col('subject_id'), col('membership_id'), col('special_room_id')],
+      `INSERT INTO cell (org_id, timetable_id, classroom_id, weekday, period, subject_id, membership_id, special_room_id, second_membership_id)
+       SELECT $1, $2, * FROM unnest($3::bigint[], $4::int[], $5::int[], $6::bigint[], $7::bigint[], $8::bigint[], $9::bigint[])`,
+      [orgId, ttId, col('classroom_id'), col('weekday'), col('period'), col('subject_id'), col('membership_id'), col('special_room_id'), col('second_membership_id')],
     );
   }
   async function newTimetable(req, client, name, cells, genInfo) {
@@ -124,7 +125,7 @@ export function generateRouter(pool) {
       const t = await currentTerm(pool, o);
       const q = async (sql, p = [o]) => (await pool.query(sql, p)).rows;
       const classrooms = await q(`SELECT id, grade, class_no, homeroom_membership_id FROM classroom WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL ORDER BY grade, class_no`, [o, t.id]);
-      const lines = await q(`SELECT id, membership_id, subject_id, classroom_id, special_room_id, weekly_hours, sync_progress, block FROM teaching_load WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL ORDER BY id`, [o, t.id]);
+      const lines = await q(`SELECT id, membership_id, second_membership_id, second_hours, subject_id, classroom_id, special_room_id, weekly_hours, sync_progress, block FROM teaching_load WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL ORDER BY id`, [o, t.id]);
       const org = (await q(`SELECT soft_weights, small_school FROM org WHERE id = $1`))[0] ?? {};
       const periodCfg = (await q(`SELECT period_config FROM org WHERE id = $1`))[0]?.period_config ?? {};
       const tierRows = await q(`SELECT id, tier FROM membership WHERE org_id = $1 AND deleted_at IS NULL AND tier IS NOT NULL`);
@@ -172,7 +173,7 @@ export function generateRouter(pool) {
       if (!tt) return notFound(res);
       const p = z.object({ name: z.string().trim().min(1).max(60) }).safeParse(req.body);
       if (!p.success) return bad(res);
-      const cells = (await pool.query(`SELECT classroom_id, weekday, period, subject_id, membership_id, special_room_id FROM cell WHERE org_id = $1 AND timetable_id = $2 AND deleted_at IS NULL`, [req.orgId, tt.id])).rows;
+      const cells = (await pool.query(`SELECT classroom_id, weekday, period, subject_id, membership_id, second_membership_id, special_room_id FROM cell WHERE org_id = $1 AND timetable_id = $2 AND deleted_at IS NULL`, [req.orgId, tt.id])).rows;
       const info = (await pool.query(`SELECT gen_info FROM timetable WHERE id = $1`, [tt.id])).rows[0]?.gen_info;
       res.status(201).json(await tx((c) => newTimetable(req, c, p.data.name, cells, info ? { ...info, copied_from: tt.id } : { copied_from: tt.id })));
     } catch (e) { dupOr(res, next)(e); }

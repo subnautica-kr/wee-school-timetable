@@ -347,7 +347,7 @@ function Loads({ P, admin }) {
   const pickedIds = (vals) => [...new Set((vals || []).flatMap((v) => (v.startsWith('g') ? classes.filter((c) => c.grade === Number(v.slice(1))).map((c) => c.id) : [Number(v)])))];
   const add = guard(async () => {
     const ids = pickedIds(row.c);
-    const base = { membership_id: row.m ? Number(row.m) : null, subject_id: row.s ? Number(row.s) : null, weekly_hours: row.h || 0, sync_progress: !!row.p, block: row.b ? 2 : 1 };
+    const base = { membership_id: row.m ? Number(row.m) : null, subject_id: row.s ? Number(row.s) : null, weekly_hours: row.h || 0, sync_progress: !!row.p, block: row.b ? 2 : 1, ...(row.m2 ? { second_membership_id: Number(row.m2), second_hours: row.h2 === '' || row.h2 == null ? null : Number(row.h2) } : {}) };
     for (const c of ids.length ? ids : [null]) await api('POST', `${P}/loads`, { ...base, classroom_id: c });
     setRow({});
   });
@@ -382,6 +382,14 @@ function Loads({ P, admin }) {
             <Table.Td>
               {admin ? (
                 <Group gap="xs" wrap="nowrap">
+                  <Select aria-label="둘째 교사" placeholder="둘째 교사(선택)" clearable searchable data={opt(people, { v: (x) => x.membership_id, l: (x) => x.name }).filter((o) => o.value !== String(l.membership_id))} value={l.second_membership_id ? String(l.second_membership_id) : null} onChange={(v) => patch(l, v ? { second_membership_id: Number(v) } : { second_membership_id: null, second_hours: null })} w={130} />
+                  {l.second_membership_id && <NumberInput aria-label="함께 시수" placeholder="전부" min={0} allowDecimal={false} key={`${l.id}:h2:${l.second_hours}`} defaultValue={l.second_hours ?? ''} onBlur={(e) => { const v = numOfText(e.currentTarget.value); if (v !== (l.second_hours ?? null)) patch(l, { second_hours: v }); }} w={90} suffix="시수" />}
+                </Group>
+              ) : (l.second_membership_id ? <>둘째 {nm(people, 'membership_id', l.second_membership_id)?.name ?? ''}{l.second_hours != null ? ` · 함께 ${l.second_hours}시수` : ' · 함께 전부'}</> : null)}
+            </Table.Td>
+            <Table.Td>
+              {admin ? (
+                <Group gap="xs" wrap="nowrap">
                   <NumberInput aria-label="시수" min={0} allowDecimal={false} key={`${l.id}:${l.weekly_hours}`} defaultValue={l.weekly_hours} onBlur={(e) => { const v = numOfText(e.currentTarget.value); if (v !== null && v !== l.weekly_hours) patch(l, { weekly_hours: v }); }} w={70} suffix="시수" />
                   <Switch size="xs" label="연강" checked={l.block === 2} onChange={(e) => patch(l, { block: e.currentTarget.checked ? 2 : 1 })} />
                   {l.sync_progress && <Text size="xs" c="dimmed">진도 맞춤</Text>}
@@ -398,6 +406,8 @@ function Loads({ P, admin }) {
           <Select placeholder="교과" clearable data={opt(subjects, { v: (x) => x.id, l: (x) => x.name })} value={row.s ?? null} onChange={(v) => setRow({ ...row, s: v })} w={130} />
           <MultiSelect placeholder="모든 반(비우면)" description="반 여러 개나 「○학년 전체」를 골라 한 번에 줄을 만듭니다" clearable searchable data={classData} value={row.c ?? []} onChange={(v) => setRow({ ...row, c: v })} w={260} />
           <NumberInput placeholder="시수" description={`기관 기준 주 ${org.limits.loadPerWeek}`} min={0} value={row.h ?? ''} onChange={(v) => setRow({ ...row, h: v })} w={80} />
+          <Select placeholder="둘째 교사(선택)" clearable searchable data={opt(people, { v: (x) => x.membership_id, l: (x) => x.name }).filter((o) => o.value !== row.m)} value={row.m2 ?? null} onChange={(v) => setRow({ ...row, m2: v })} w={150} />
+          {row.m2 && <NumberInput placeholder="함께 시수" description="비우면 전부" min={0} allowDecimal={false} value={row.h2 ?? ''} onChange={(v) => setRow({ ...row, h2: v })} w={100} />}
           <Switch label="진도 맞춤" checked={!!row.p} onChange={(e) => setRow({ ...row, p: e.currentTarget.checked })} />
           <Switch label="2시수 연강" checked={!!row.b} onChange={(e) => setRow({ ...row, b: e.currentTarget.checked })} />
           <Button onClick={add}>줄 추가</Button>
