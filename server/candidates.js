@@ -1,3 +1,5 @@
+import { periodsOn } from '../shared/periods.js';
+
 // 보결 후보 등급 — 순수 함수(DB 없이 시험). 거부하지 않고 등급 또는 제외 사유를 붙여 목록으로 낸다.
 // 등급 A 자기 반이 전담 수업 중인 담임 · B 하교한 뒤인 담임 · C 그 시간 수업 없는 전담 · D 비교과(시간표에 수업이 하나도 없는 전담·비교과)
 // 기관 설정(ctx.config.substitute): order = 등급 순서 · assistants/lunchDuty = 'exclude'(후보에서 뺀다) | 'warn'(후보에 남기고 warn 사유를 달아 순위 맨 뒤로, 기본)
@@ -46,7 +48,8 @@ export function rankCandidates(ctx) {
     const add = (grade) => candidates.push({ membership_id: m.id, name: m.name, grade, taken, ...(lunchWarn ? { warn: lunchWarn } : {}) });
     if (m.duty === '담임' && m.homeroom) {
       const cell = at(m.homeroom.id);
-      if (g && g.periods && period > g.periods) { add('B'); continue; }
+      const last = g ? periodsOn(periodConfig, m.homeroom.grade, weekday, 0) : 0; // 그 요일 교시 수(요일별 값 → 학년 기본)
+      if (last && period > last) { add('B'); continue; }
       const who = cell?.membership_id;
       if (cell && who && who !== m.id && isSpecialist(dutyById.get(who))) { add('A'); continue; }
       if (cell && (!who || !dutyById.get(who))) { out(m, 'held'); continue; }

@@ -3,6 +3,7 @@ import express from 'express';
 import { z } from 'zod';
 import { requireOrgAction } from '../guard.js';
 import { audit } from '../audit.js';
+import { periodsMax } from '../../shared/periods.js';
 import { CEIL, dutyWarnings, limitWarnings, loadConfig, semesterOf, withWarnings } from '../orgConfig.js';
 
 // 학교 기본: 학기 · 반 · 학년별 교시·점심 · 기본 교과 14 · 특별실 · 전담·비교과
@@ -67,6 +68,7 @@ const periodConfig = z.object({
       lunch: HHMM.nullable().optional(), // 점심 시작 시각 HH:MM
       lunchAfter: z.number().int().min(0).max(CEIL.periods).optional(), // 몇 교시 뒤
       times: periodTimes.optional(), // 이 학년만 다른 교시 시각
+      byDay: z.record(z.string().regex(/^[1-7]$/), z.number().int().min(1).max(CEIL.periods)).optional(), // 요일(1=월)별 교시 수 — 비운 요일은 periods(T-1205)
     }),
   ),
   times: periodTimes.optional(), // 학교 공통 교시 시각(학년 칸이 없으면 이것)
@@ -193,7 +195,7 @@ export function schoolRouter(pool) {
     await pool.query(`UPDATE org SET period_config = $2 WHERE id = $1`, [req.orgId, JSON.stringify(p.data)]);
     const cfg = await loadConfig(pool, req.orgId);
     const gs = Object.keys(p.data.grades);
-    const w = limitWarnings(cfg, { periods: Math.max(0, ...Object.values(p.data.grades).map((g) => g.periods)), grades: Math.max(0, ...gs.map(Number)) });
+    const w = limitWarnings(cfg, { periods: Math.max(0, ...gs.map((g) => periodsMax(p.data, g))), grades: Math.max(0, ...gs.map(Number)) });
     res.json(withWarnings(p.data, w));
   }));
 

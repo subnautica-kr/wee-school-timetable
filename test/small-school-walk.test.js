@@ -6,10 +6,13 @@ import assert from 'node:assert/strict';
 import { smallSchool, seedPeople } from './fixtures/schools.js';
 import { setupSchoolEnv, HAS_DB } from './fixtures/school-env.js';
 import { generate } from '../web/src/gen/core.js';
+import { periodsOn } from '../shared/periods.js';
 
-test('작은 학교 한 바퀴: 설정 → 생성 → 확정 → 보결 지정, 막힘 0', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {
-  const { pool, orgId, tag, call, blocked, P } = await setupSchoolEnv(t, 'walk');
+// periods 를 주면 그 교시 설정으로 돈다(요일별 교시 학교 — T-1205). 돌려준 값으로 시험마다 더 본다.
+async function walk(t, label, periods) {
+  const { pool, orgId, tag, call, blocked, P } = await setupSchoolEnv(t, label);
   const s = smallSchool();
+  if (periods) s.periods = periods;
   const mids = await seedPeople(pool, orgId, tag, s);
 
   const term = await call('GET', `${P}/term`);
@@ -81,4 +84,21 @@ test('작은 학교 한 바퀴: 설정 → 생성 → 확정 → 보결 지정, 
   assert.equal(as.status, 200);
 
   assert.deepEqual(blocked, []);
+  return { s, cells, call, P, gin };
+}
+
+test('작은 학교 한 바퀴: 설정 → 생성 → 확정 → 보결 지정, 막힘 0', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {
+  await walk(t, 'walk');
 });
+
+// 요일별 교시 학교: 1·2학년 월·수·금 5교시 / 화·목 4교시 · 3~6학년 수요일만 4교시 (선생님 요청 9번)
+test('작은 학교 한 바퀴(요일별 교시 수): 저장 → 생성이 그날 교시 수 안에만 놓는다 → 확정 → 보결, 막힘 0', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {
+  const periods = Object.fromEntries([1, 2, 3, 4, 5, 6].map((g) => [g, g <= 2
+    ? { periods: 5, lunch: '12:00', lunchAfter: 4, byDay: { 2: 4, 4: 4 } }
+    : { periods: 6, lunch: '12:00', lunchAfter: 4, byDay: { 3: 4 } }]));
+  const { cells, call, P, gin } = await walk(t, 'walkday', periods);
+  const saved = await call('GET', `${P}/school/periods`);
+  assert.deepEqual(saved.json.grades['1'].byDay, { 2: 4, 4: 4 }, '요일별 값이 저장된다(스키마가 버리지 않는다)');
+  const gradeOf = Object.fromEntries(gin.classrooms.map((c) => [c.id, c.grade]));
+  const out = cells.filter((c) => c.period > periodsOn(gin.periods, gradeOf[c.classroom_id], c.weekday));
+  assert.deepEqual(out, [], '그날 교시 수 밖 칸이 없다');});

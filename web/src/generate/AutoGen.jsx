@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { currentConflicts, moveConflicts } from '../gen/core.js';
 import { dropPartial, genKey, loadPartial, savePartial } from '../gen/store.js';
 import { combinedOf } from '../gen/overlap.js';
+import { overHours, periodsMax, periodsOn } from '../../../shared/periods.js';
 import { DEFAULTS, useOrgConfig } from '../orgConfig.js';
 import Term from '../Term.jsx';
 import { featureOn } from '../features.js';
@@ -104,6 +105,7 @@ function Generator({ P, input, onSaved }) {
     } catch (e) { setMsg({ color: 'red', text: e.message }); }
   };
 
+  const over = overHours(input.classrooms, input.lines, input.periods, input.weekdays || 5); // 시수 합 > 요일별 교시 합 — 알림만, 막지 않는다(T-1205)
   const noLunch = [...new Set(input.classrooms.map((c) => c.grade))].sort((x, y) => x - y).filter((g) => !(input.periods?.grades?.[g]?.lunchAfter > 0)); // 알림만, 막지 않는다
   return (
     <Stack>
@@ -115,6 +117,7 @@ function Generator({ P, input, onSaved }) {
         <Switch label="전담 식사 빈 칸 필수" description="전담 선생님이 점심때 쉴 칸을 꼭 비워 둡니다. 끄면 그 칸에도 수업이 들어갈 수 있습니다." checked={opt.mealGap} onChange={(e) => setOpt({ mealGap: e.currentTarget.checked })} />
       </Group>
       {noLunch.length > 0 && <Text size="sm" c="yellow.8">{noLunch.map((g) => `${g}학년`).join('·')}은 점심 자리가 비어 점심 규칙을 건너뜁니다. 「학교」 화면 학년별 교시·점심에서 「점심은 몇 교시 뒤」를 넣으면 적용됩니다.</Text>}
+      {over.length > 0 && <Text size="sm" c="yellow.8" data-testid="over-hours">{over.map((o) => `${o.grade}-${o.class_no} 시수 ${o.hours} > 한 주 교시 ${o.cap}`).join(' · ')} — 다 못 놓을 수 있습니다. 시수표나 「학교」 화면 교시 수(요일마다 다르게)를 확인하세요.</Text>}
       {!opt.mealGap && <Text size="sm" c="yellow.8">식사 빈 칸을 필수에서 뺐습니다. 대신 권장 점수의 「교사 점심시간 확보」가 세어 줍니다.</Text>}
       <Group align="end">
         <Button onClick={() => start(false)} loading={!!run} disabled={!input.classrooms.length}>자동 생성 (후보 {opt.k}개 · 최대 {opt.k * opt.sec}초)</Button>
@@ -217,8 +220,9 @@ export function ModeGrid({ input, cells, levels = input.levels || {}, onSwap }) 
   const [src, setSrc] = useState(null);
   const classInfo = useMemo(() => {
     const g = input.periods?.grades || {};
-    return Object.fromEntries(input.classrooms.map((c) => [c.id, { L: g[c.grade]?.lunchAfter || 0, P: g[c.grade]?.periods || 5 }]));
-  }, [input]);
+    // P = 가장 긴 날(격자 줄 수) · PW = 요일별 교시 수(그 밖은 「수업 없음」 · 옮기면 범위 밖)
+    return Object.fromEntries(input.classrooms.map((c) => [c.id, { L: g[c.grade]?.lunchAfter || 0, P: periodsMax(input.periods, c.grade), PW: Object.fromEntries(DAYS.map((_x, wi) => [wi + 1, periodsOn(input.periods, c.grade, wi + 1)])) }]));
+  }, [input, DAYS]);
   // 복식 묶음·교시 시각을 아는 겹침 규칙(서버 violations.js 와 같은 규칙)
   const ctx = useMemo(() => ({ periods: input.periods || {}, gradeOf: Object.fromEntries(input.classrooms.map((c) => [c.id, c.grade])), combined: combinedOf(input.small) }), [input]);
   const now = useMemo(() => currentConflicts(cells, classInfo, ctx), [cells, classInfo, ctx]);
@@ -282,8 +286,9 @@ export function ModeGrid({ input, cells, levels = input.levels || {}, onSwap }) 
                           <Text size="sm" fw={600}>{subj(c.subject_id) || '·'}</Text>
                           <Text size="xs" c="dimmed">{nm(input.teachers, c.membership_id)?.name || ''}{c.special_room_id ? ` @${nm(input.rooms, c.special_room_id)?.name || ''}` : ''}</Text>
                           {bad && <Text size="xs" c="red" fw={700}>{bad.some((b) => b.rule === 'teacher_overlap') ? '교사 겹침' : '특별실 겹침'}</Text>}
+                          {p > classInfo[cls.id].PW[w] && <Text size="xs" c="orange" fw={700}>교시 수 밖</Text>}
                         </>
-                      ) : <Text size="xs" c="dimmed">&nbsp;</Text>}
+                      ) : <Text size="xs" c="dimmed">{p > classInfo[cls.id].PW[w] ? '수업 없음' : ' '}</Text>}
                     </Table.Td>
                   );
                 })}

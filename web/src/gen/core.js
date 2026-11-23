@@ -4,6 +4,7 @@
 // 업무 규칙을 막지 않는다: 못 놓은 수업·남은 위반은 목록으로 돌려줄 뿐 결과를 버리지 않는다.
 
 import { findOverlaps } from './overlap.js';
+import { periodsOn } from '../../../shared/periods.js';
 
 export const HARD_RULES = [
   '한 반 한 시각 한 과목',
@@ -24,6 +25,9 @@ export const DAYS = 5; // 기본 요일 수(기관 설정 weekdays 가 input.day
 const W = 16; // 하루 칸 폭(교시·시각 ≤ 13)
 
 // 시각 칸: 점심(N교시 뒤)이 있으면 그 뒤 교시는 한 칸 밀린다
+// classInfo[반] = { L, P, PW?: {요일: 교시 수} } — 그 요일 교시 수(요일별 값 → 학년 값 → 12)
+export const dayP = (info, weekday) => (info?.PW?.[weekday]) || info?.P || 12;
+
 export const clockOf = (lunchAfter, period) => (lunchAfter > 0 && period > lunchAfter ? period + 1 : period);
 
 export function rng(seed) {
@@ -85,7 +89,9 @@ export function prepare(input) {
   const grades = input.periods?.grades || {};
   const classes = input.classrooms.map((c, i) => {
     const g = grades[c.grade] || grades[String(c.grade)] || {};
-    return { id: c.id, grade: c.grade, idx: i, P: Math.min(maxP, g.periods || defP), L: g.lunchAfter || 0 };
+    // PD[d] = d 요일(0=월) 교시 수 — 요일별 교시(byDay)가 없으면 다섯 날 모두 학년 값. P = 가장 긴 날(칸 훑는 범위)
+    const PD = Array.from({ length: DAYS }, (_, d) => Math.min(maxP, periodsOn(input.periods, c.grade, d + 1, defP)));
+    return { id: c.id, grade: c.grade, idx: i, P: Math.max(...PD), PD, L: g.lunchAfter || 0 };
   });
   const clsIdx = new Map(classes.map((c) => [String(c.id), c.idx]));
   const tIdx = new Map();
@@ -230,7 +236,7 @@ export function solve(prep, { seed = 1, strategy = 0, deadline = Date.now() + 30
     if (L.alt && L.d < 0) pick(L, d, p);
     for (const c of L.cs) {
       const k = classes[c];
-      if (p + L.span - 1 > k.P) return -1;
+      if (p + L.span - 1 > k.PD[d]) return -1; // 그 요일 교시 수 밖
       if (L.span > 1 && k.L > 0 && p <= k.L && p + L.span - 1 > k.L) return -1; // 연강은 점심을 넘지 않는다
       for (let i = 0; i < L.span; i++) {
         const pp = p + i;
@@ -275,7 +281,7 @@ export function solve(prep, { seed = 1, strategy = 0, deadline = Date.now() + 30
   // 1) 고정(반 고정 + 교과): 그 반 그 교과 수업 하나를 그 칸에 박는다. 없으면 교과만 있는 칸을 만든다
   const extra = [];
   for (const f of prep.fixedReq) {
-    if (f.p > classes[f.c].P) continue;
+    if (f.p > (classes[f.c].PD[f.d] ?? classes[f.c].P)) continue;
     if (classOcc[(f.c * DAYS + f.d) * W + f.p] >= 0) continue;
     const L = lessons.find((x) => x.c === f.c && x.cs.length === 1 && x.s === f.s && x.d < 0 && x.span === 1);
     if (L && cost(L, f.d, f.p) === 0) { place(L, f.d, f.p); L.fixed = true; } else if (!L) extra.push({ c: f.c, d: f.d, p: f.p, s: f.s });
@@ -511,7 +517,7 @@ export function moveConflicts(cells, classInfo, from, to, ctx = null) {
     const now = currentConflicts([...rest, ...moved], classInfo, ctx);
     const out = [];
     for (const m of moved) {
-      if (m.period > ((classInfo[m.classroom_id] || {}).P || 12)) out.push({ rule: 'out_of_range' });
+      if (m.period > dayP(classInfo[m.classroom_id], m.weekday)) out.push({ rule: 'out_of_range' });
       out.push(...(now.get(`${m.classroom_id}:${m.weekday}:${m.period}`) || []));
     }
     return out;
@@ -559,7 +565,7 @@ function conflictsOf(moved, rest, classInfo) {
   const out = [];
   for (const m of moved) {
     const info = classInfo[m.classroom_id] || { L: 0, P: 12 };
-    if (m.period > (info.P || 12)) out.push({ rule: 'out_of_range' });
+    if (m.period > dayP(info, m.weekday)) out.push({ rule: 'out_of_range' });
     const clock = clockOf(info.L, m.period);
     for (const o of rest) {
       if (o.classroom_id === m.classroom_id || o.weekday !== m.weekday) continue;

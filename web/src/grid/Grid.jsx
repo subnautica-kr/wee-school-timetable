@@ -7,6 +7,7 @@ import { todayStr } from '../today.js';
 import { featureOn } from '../features.js';
 import { EmptyHint, Finger } from './Guide.jsx';
 import { emptyCount, confirmText } from '../../../shared/ttConfirm.js';
+import { outsideCells, periodsMax, periodsOn } from '../../../shared/periods.js';
 import { roomWeek, isClash, movePreview } from '../../../shared/ttDrag.js';
 import { findById, pickOrFirst, sameId, loadPick, savePick } from './pick.js';
 
@@ -119,7 +120,8 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
   if (!d.classrooms.length) return <Finger text="학교 기본 메뉴에서 반을 먼저 만드세요"><EmptyHint title="반이 없습니다" body="「학교 기본」에서 학년별 반 수를 정하면 격자가 생깁니다." /></Finger>;
 
   const cls = pickOrFirst(d.classrooms, classId);
-  const pcount = d.periods?.grades?.[cls.grade]?.periods ?? 5;
+  const pcount = periodsMax(d.periods, cls.grade); // 가장 긴 날까지 줄을 그린다 — 그날 교시 수 밖은 「수업 없음」(T-1205)
+  const offDay = (w, p) => p > periodsOn(d.periods, cls.grade, w);
   const name = (list, v) => findById(list, v);
   const subjName = (id) => name(d.subjects, id)?.short_name || name(d.subjects, id)?.name || '';
   const levelOf = (rule) => d.levels[rule];
@@ -172,7 +174,7 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
   const run = async (fn) => { setError(''); try { await fn(); } catch (e) { setError(e.message); } };
   const confirmTt = () => run(async () => {
     const t = d.timetable;
-    if (!(await ask(confirmText(t.name, date, d.violations.length, emptyCount(d.classrooms, d.periods, d.cells)), { yes: '확정' }))) return;
+    if (!(await ask(confirmText(t.name, date, d.violations.length, emptyCount(d.classrooms, d.periods, d.cells, DAYS), outsideCells(d.classrooms, d.periods, d.cells).length), { yes: '확정' }))) return;
     const r = await api('POST', `${P}/timetables/${tid}/confirm`, { starts_on: date });
     setMsg(r.notes?.length ? { head: '확정했습니다.', list: r.notes } : null);
     await load(); onChanged();
@@ -275,8 +277,9 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
                           <Text size="sm" fw={600}>{subjName(c.subject_id) || '·'}</Text>
                           <Text size="xs" c="dimmed">{name(d.teachers, c.membership_id)?.name || ''}{c.special_room_id ? ` @${name(d.rooms, c.special_room_id)?.name || ''}` : ''}</Text>
                           {v && <Text size="xs" c={v.color} fw={700}>{v.label}</Text>}
+                          {offDay(w, p) && <Text size="xs" c="orange" fw={700}>교시 수 밖</Text>}
                         </>
-                      ) : <Text size="xs" c="dimmed">&nbsp;</Text>}
+                      ) : <Text size="xs" c="dimmed">{offDay(w, p) ? '수업 없음' : ' '}</Text>}
                       {here && <Text size="xs" fw={700} c={bad ? 'red' : 'green'} data-testid="drag-preview">{bad ? `옮기면 ${pv.overlaps.join(' · ')}` : '겹침 없음'}{pv.vacates ? ' · 보낸 칸은 빈칸이 됩니다' : ' · 맞바꿈'}</Text>}
                     </Table.Td>
                   );
@@ -290,7 +293,7 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
         <Select label="특별실 주간 보기" placeholder="방을 고르면 그 방을 쓰는 칸이 나옵니다" clearable data={d.rooms.map((r) => ({ value: String(r.id), label: r.name }))} value={roomView} onChange={setRoomView} w={260} />
         {roomView && (() => {
           const wk = roomWeek(d.cells, roomView);
-          const maxP = Math.max(1, ...d.classrooms.map((k) => d.periods?.grades?.[k.grade]?.periods ?? 5), ...[...wk.keys()].map((k) => Number(k.split(':')[1])));
+          const maxP = Math.max(1, ...d.classrooms.map((k) => periodsMax(d.periods, k.grade)), ...[...wk.keys()].map((k) => Number(k.split(':')[1])));
           return (
             <div style={{ overflowX: 'auto' }} data-testid="room-week">
               <Table withTableBorder withColumnBorders style={{ minWidth: 80 + DAYS.length * 110 }}>
