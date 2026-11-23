@@ -60,8 +60,8 @@ export default function AuditLog({ orgId }) {
           <Button type="submit" disabled={!target}>찾기</Button>
         </Group>
       </form>
-      <Table.ScrollContainer minWidth={600}>
-        <Table striped>
+      <Table.ScrollContainer minWidth={0} type="native">
+        <Table striped className="card-table">
           <Table.Thead><Table.Tr><Table.Th>시각</Table.Th><Table.Th>누가</Table.Th><Table.Th>무엇</Table.Th><Table.Th>대상</Table.Th></Table.Tr></Table.Thead>
           <Table.Tbody>
             {items.map((r) => (

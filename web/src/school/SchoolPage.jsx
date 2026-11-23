@@ -263,7 +263,7 @@ function Basics({ P, admin }) {
         </Group>
       )}
       <Group gap="xs"><Text fw={600}>학년별 교시 · 점심</Text>{saved && <Badge variant="light" color={saved === '저장됨' ? 'green' : 'gray'}>{saved}</Badge>}</Group>
-      <Table><Table.Tbody>
+      <Table className="card-table"><Table.Tbody>
         {[1, 2, 3, 4, 5, 6].map((g) => (
           <Table.Tr key={g}>
             <Table.Td>{g}학년</Table.Td>
@@ -364,7 +364,7 @@ function Loads({ P, admin }) {
       <Err e={err || fail} />
       {(d?.alerts || []).map((a, i) => <MissingBox key={i} a={a} />)}
       {admin && <LoadUpload P={P} onDone={reload} />}
-      <Table><Table.Tbody>
+      <Table className="card-table"><Table.Tbody>
         {(d?.lines || []).map((l) => (
           <Table.Tr key={l.id} bg={l.incomplete ? 'yellow.0' : undefined}>
             {admin ? (

@@ -14,6 +14,11 @@
   .app-tabs-scroll .mantine-Tabs-tab { flex: 0 0 auto; white-space: nowrap; }
   .more-menu { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: var(--mantine-spacing-sm); margin-bottom: var(--mantine-spacing-md); }
   .more-menu > div { min-width: 0; }
+  /* 좁은 폭: 표 한 줄을 카드로 접는다 */
+  .card-table, .card-table tbody { display: block; width: 100%; }
+  .card-table thead { display: none; }
+  .card-table tr { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 10px; padding: 8px; margin-bottom: 8px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 100%; }
+  .card-table td { display: block; padding: 0 !important; border: 0 !important; max-width: 100%; }
   /* 누르는 것은 폰에서 44px 이상 */
   .mantine-Tabs-tab, .app-body button.mantine-Button, .app-body .mantine-Alert-closeButton, .app-body .mantine-CloseButton-root { min-height: 44px; }
   .app-body .mantine-Button-root[data-size*="compact"] { min-height: 44px; min-width: 44px; }
