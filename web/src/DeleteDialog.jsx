@@ -46,7 +46,7 @@ export function DeleteDialog({ opts, onClose }) {
         <Text size="xs" c="dimmed">그대로 남는 것: {opts.keeps ? `${opts.keeps} ` : ''}{KEEP}</Text>
         {opts.restorable && <Text size="sm" c="teal">보관함에서 되살릴 수 있어요. (기관 관리자 → 내 정보 → 지운 것 보관함)</Text>}
         {opts.danger && (
-          <TextInput data-autofocus label={opts.typeLabel || '확인 글자'} description={expect ? `아래 칸에 「${expect}」을 그대로 입력하면 지우기 단추가 켜집니다` : undefined}
+          <TextInput data-autofocus label={opts.typeLabel || '확인 글자'} description={expect ? `아래 칸에 「${expect}」을 그대로 입력하면 「${opts.yes || '지우기'}」 단추가 켜집니다` : undefined}
             value={typed} onChange={(e) => setTyped(e.currentTarget.value)} data-testid="delete-type" />
         )}
         {err && <Alert color="red" p="xs" data-testid="delete-error">{err}</Alert>}

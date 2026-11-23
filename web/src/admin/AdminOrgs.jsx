@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Alert, Badge, Button, Code, Group, Modal, Select, Stack, Table, Text, TextInput, Title } from '@mantine/core';
 import { api } from '../api.js';
 import { downloadTemp } from './csv.js';
+import { useDelete } from '../DeleteDialog.jsx';
+import { deleteOrgBlock } from '../deleteDialog.js';
 
 // 시스템 관리자 화면 — 기관 등록 · 상태 · 첫 관리자 · 비밀번호 초기화. 기관 안 데이터는 이 화면에 없다.
 export default function AdminOrgs() {
@@ -14,6 +16,7 @@ export default function AdminOrgs() {
   const [conc, setConc] = useState(null); // 겸임 소속 추가 대상 기관
   const [concForm, setConcForm] = useState({ loginId: '', role: '교직원' });
   const [reset, setReset] = useState(null); // { org, admins }
+  const [del, delBox] = useDelete();
 
   const load = () => api('GET', '/admin/orgs').then(setOrgs).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
@@ -55,8 +58,30 @@ export default function AdminOrgs() {
     setReset(null);
   });
 
+  const askDeleteOrg = (o) => {
+    const block = deleteOrgBlock(o);
+    if (block) { setErr(block); return; }
+    setErr('');
+    del({
+      title: `「${o.name}」 기관 지우기`, danger: true, typeLabel: '기관 이름', yes: '기관 지우기',
+      lead: '이 기관과 안의 자료(반·학기·시간표 등)를 지웁니다. 되살리기는 없습니다. 지운 뒤에는 되돌릴 수 없으니 꼭 필요한 경우만 지우세요.',
+      previewPath: `/admin/orgs/${o.id}/delete-preview`, run: (typed) => api('DELETE', `/admin/orgs/${o.id}`, { confirm: typed }), onDone: load,
+    });
+  };
+  const demote = (a) => run(async () => {
+    await api('POST', `/admin/orgs/${reset.org.id}/admins/${a.userId}/demote`);
+    setReset({ org: reset.org, admins: await api('GET', `/admin/orgs/${reset.org.id}/admins`) });
+  });
+  const askDeleteUser = (a) => del({
+    title: `계정 「${a.loginId}」 지우기`, danger: true, typeLabel: '아이디', expect: a.loginId, yes: '계정 지우기',
+    lead: `${a.name}님의 계정을 지웁니다. 되살리기는 없습니다. 관리자 자리만 비우려면 「관리자에서 빼기」를 쓰세요.`,
+    run: (typed) => api('DELETE', `/admin/users/${a.userId}`, { confirm: typed }),
+    onDone: () => openReset(reset.org),
+  });
+
   return (
     <Stack>
+      {delBox}
       <Title order={4}>기관 관리</Title>
       {err && <Alert color="red">{err}</Alert>}
       <form onSubmit={register}>
@@ -86,6 +111,7 @@ export default function AdminOrgs() {
                       <Button size="xs" variant="default" onClick={() => setAdmin(o)}>첫 관리자 만들기</Button>
                       <Button size="xs" variant="default" onClick={() => setConc(o)}>겸임 소속 추가</Button>
                       <Button size="xs" variant="default" onClick={() => openReset(o)}>관리자 비밀번호 초기화</Button>
+                      <Button size="xs" color="red" variant="light" onClick={() => askDeleteOrg(o)}>지우기</Button>
                     </Group>
                   )}
                 </Table.Td>
@@ -113,13 +139,17 @@ export default function AdminOrgs() {
           </Stack>
         </form>
       </Modal>
-      <Modal opened={!!reset} onClose={() => setReset(null)} title={`${reset?.org.name} — 관리자 비밀번호 초기화`}>
+      <Modal opened={!!reset} onClose={() => setReset(null)} title={`${reset?.org.name} — 관리자 관리`}>
         <Stack>
           {reset?.admins.length === 0 && <Text>관리자가 없습니다. 「첫 관리자 만들기」를 쓰세요.</Text>}
           {reset?.admins.map((a) => (
             <Group key={a.userId} justify="space-between">
               <Text>{a.name} ({a.loginId})</Text>
-              <Button size="xs" color="red" variant="light" onClick={() => doReset(a)}>초기화</Button>
+              <Group gap="xs">
+                <Button size="xs" color="red" variant="light" onClick={() => doReset(a)}>초기화</Button>
+                <Button size="xs" variant="default" title="계정은 남고 이 기관 관리자 자리만 없어집니다" onClick={() => demote(a)}>관리자에서 빼기</Button>
+                <Button size="xs" color="red" variant="outline" onClick={() => askDeleteUser(a)}>계정 지우기</Button>
+              </Group>
             </Group>
           ))}
         </Stack>

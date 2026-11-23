@@ -21,3 +21,9 @@ export const KIND_NAME = {
   classroom: '반', membership: '교사(이 학교에서 뺌)', subject: '교과', special_room: '특별실', timetable: '시간표',
   term: '새 학기(되돌리기로 지움)', term_clear: '학기 비우기',
 };
+
+// 묶음 이름 옆 종류 글자 — 이름이 이미 그 글자로 끝나면(「1학년 1반」+「반」) 겹쳐 쓰지 않는다
+export const kindTag = (label, kind) => { const k = KIND_NAME[kind] ?? kind; return String(label ?? '').endsWith(k) ? '' : k; };
+
+// 기관 지우기: 사용 중인 기관은 막고 할 일을 말한다(null 이면 지울 수 있음)
+export const deleteOrgBlock = (o) => (o.status === '중지' ? null : `「${o.name}」은 사용 중이라 지울 수 없습니다. 먼저 「중지」를 누른 뒤 다시 「지우기」를 눌러 주세요.`);

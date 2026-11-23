@@ -246,7 +246,7 @@ export async function restoreBatch(client, orgId, batchId) {
       )).rowCount;
     }
   } catch (e) {
-    if (e.code === '23505') throw httpError(409, '같은 것이 이미 있어 되살릴 수 없습니다');
+    if (e.code === '23505') throw httpError(409, '같은 것이 이미 있어 되살릴 수 없습니다. 지금 있는 같은 이름의 것을 먼저 지우거나 이름을 바꾼 뒤 다시 되살려 주세요');
     throw e;
   }
   await client.query(`UPDATE delete_batch SET restored_at = now() WHERE id = $1`, [b.id]);
