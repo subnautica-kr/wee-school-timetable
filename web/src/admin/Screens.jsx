@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Alert, Button, Container, Group, Select, Tabs, Text, Title } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { api } from '../api.js';
@@ -48,7 +48,7 @@ function Panel({ v, hint, children }) {
   return <Tabs.Panel value={v}>{hint && <Text size="sm" c="dimmed" mb="sm" className="no-print">{hint}</Text>}{ctx && <MenuIntro menu={v} user={ctx.user} features={ctx.features} />}{children}</Tabs.Panel>;
 }
 
-// 기관 화면 탭 — 폰 하단 바는 다섯(시간표·보결·특별실·근태·내 정보)만, 나머지는 「내 정보」 안 버튼으로
+// 기관 화면 탭 — 폰도 위쪽 탭 한 줄을 그대로 두고 가로로 밀어 넘긴다. 「내 정보」 안 카드 메뉴는 바로가기
 const PHONE_MAIN = ['grid', 'sub', 'rooms', 'att', 'me'];
 function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, setOv, jump }) {
   const edit = user.role !== '보기만';
@@ -77,14 +77,19 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
   const H = Object.fromEntries(items.map((i) => [i.v, i.hint]));
   const tab = on(want) ? want : 'grid'; // 숨긴 탭이면 시간표로
   if (!loaded) return null; // 설정을 받기 전엔 메뉴를 그리지 않는다(꺼진 탭이 잠깐 보였다 사라지는 깜빡임)
-  const bar = phone ? items.filter((i) => PHONE_MAIN.includes(i.v)) : items;
+  const bar = items;
   const more = phone ? items.filter((i) => !PHONE_MAIN.includes(i.v)) : [];
+  const listRef = useRef(null);
+  useEffect(() => { // 지금 탭이 가로 스크롤 밖에 있으면 보이게
+    if (!phone) return;
+    listRef.current?.querySelector('[data-active]')?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }, [phone, tab, loaded]);
   return (
     <IntroCtx.Provider value={{ user, features }}>
     {admin && <OrderHint features={features} />}
     {tip && <Alert className="no-print" color="blue" mb="sm" withCloseButton onClose={() => setTip(null)}>{tip}</Alert>}
     <Tabs value={tab} onChange={setTab} keepMounted={false} {...tabProps}>
-      <Tabs.List mb="md" mr={phone ? 0 : 'md'} className={phone ? 'app-tabs-bottom' : undefined}>
+      <Tabs.List ref={listRef} mb="md" mr={phone ? 0 : 'md'} className={phone ? 'app-tabs-scroll' : undefined}>
         {bar.map((i) => <Tabs.Tab key={i.v} value={i.v}>{phone && i.phoneLabel ? i.phoneLabel : i.label}</Tabs.Tab>)}
       </Tabs.List>
       {on('roster') && <Panel v="roster" hint={H.roster}><Roster orgId={user.orgId} /></Panel>}
@@ -102,9 +107,9 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
       <Panel v="feat" hint={H.feat}><FeatureBoard P={P} admin={admin} onChanged={setOv} onTry={tryGo} /></Panel>
       <Panel v="me" hint={H.me}>
         {more.length > 0 && (
-          <Group mb="md" className="no-print" data-testid="more-menu">
-            {more.map((i) => <div key={i.v}><Button variant="light" onClick={() => setTab(i.v)}>{i.label}</Button><Text size="xs" c="dimmed" maw={160}>{i.hint}</Text></div>)}
-          </Group>
+          <div className="no-print more-menu" data-testid="more-menu">
+            {more.map((i) => <div key={i.v}><Button variant="light" onClick={() => setTab(i.v)}>{i.label}</Button><Text size="xs" c="dimmed">{i.hint}</Text></div>)}
+          </div>
         )}
         <ChangePassword onDone={onUser} />
       </Panel>
@@ -141,7 +146,7 @@ export default function Screens({ user, onLogout, onUser }) {
   } else if (user.role === '시스템관리자') {
     body = (
       <Tabs defaultValue="orgs" {...tabProps}>
-        <Tabs.List mb="md" mr={phone ? 0 : 'md'} className={phone ? 'app-tabs-bottom' : undefined}>
+        <Tabs.List mb="md" mr={phone ? 0 : 'md'} className={phone ? 'app-tabs-scroll' : undefined}>
           <Tabs.Tab value="orgs">기관 관리</Tabs.Tab>
           <Tabs.Tab value="audit">기록</Tabs.Tab>
           <Tabs.Tab value="me">내 정보</Tabs.Tab>

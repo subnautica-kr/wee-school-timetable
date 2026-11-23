@@ -9,10 +9,14 @@
   .phone-only { display: flex; }
   .tt-grid .day-off { display: none; }
   .tt-grid td { min-width: 0; }
-  .app-tabs-bottom { position: fixed; left: 0; right: 0; bottom: 0; z-index: 100; background: #fff; border-top: 1px solid #ddd; overflow-x: auto; flex-wrap: nowrap; padding-bottom: env(safe-area-inset-bottom); margin: 0; }
-  .app-tabs-bottom .mantine-Tabs-tab { flex: 0 0 auto; }
-  .app-tabs-bottom .mantine-Tabs-tab[data-active] { background: #e7f5ff; color: #1971c2; font-weight: 700; box-shadow: inset 0 3px 0 #1971c2; }
-  .app-body { padding-bottom: 96px !important; } /* 하단 탭 바가 맨 아래 카드를 가리지 않게 */
+  .app-tabs-scroll { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; scrollbar-width: none; margin: 0 0 var(--mantine-spacing-md); }
+  .app-tabs-scroll::-webkit-scrollbar { display: none; }
+  .app-tabs-scroll .mantine-Tabs-tab { flex: 0 0 auto; white-space: nowrap; }
+  .more-menu { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: var(--mantine-spacing-sm); margin-bottom: var(--mantine-spacing-md); }
+  .more-menu > div { min-width: 0; }
+  /* 누르는 것은 폰에서 44px 이상 */
+  .mantine-Tabs-tab, .app-body button.mantine-Button, .app-body .mantine-Alert-closeButton, .app-body .mantine-CloseButton-root { min-height: 44px; }
+  .app-body .mantine-Button-root[data-size*="compact"] { min-height: 44px; min-width: 44px; }
 }
 @media (max-width: 480px) {
   .tt-grid td, .tt-grid th { padding: 4px 3px; }
