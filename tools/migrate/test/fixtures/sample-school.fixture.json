@@ -1,0 +1,90 @@
+{
+  "_설명": "옛 앱 샘플 학교(1.2v-preview v1-file sample.ts)를 2학년×2반으로 줄인 이전 도구 시험 자료. 지어낸 이름(순우리말 한 낱말)만 쓴다. 2학년은 월·금 4교시(요일별 교시) · 3학년 영어는 원어민 협력(둘째 교사) · 3학년 체육 한 시간은 담임 수업 · 「로봇코딩」은 새 앱 기본 교과에 없는 과목 · 「마루」는 명단에 없는 교사로 쓴다.",
+  "meta": { "name": "샘플초등학교", "term": "2026학년도 2학기", "schemaVersion": 3 },
+  "specs": [
+    {
+      "id": "s-1-2", "name": "1·2학년 시간 틀", "cycleDays": 7, "activeDays": [0, 1, 2, 3, 4], "dayStart": "09:00", "dayEnd": "13:50",
+      "slots": [
+        { "index": 0, "label": "1교시", "start": "09:00", "end": "09:40", "assignable": true, "kind": "lesson" },
+        { "index": 1, "label": "2교시", "start": "09:50", "end": "10:30", "assignable": true, "kind": "lesson" },
+        { "index": 2, "label": "3교시", "start": "10:40", "end": "11:20", "assignable": true, "kind": "lesson" },
+        { "index": 3, "label": "4교시", "start": "11:30", "end": "12:10", "assignable": true, "kind": "lesson" },
+        { "index": 4, "label": "점심", "start": "12:10", "end": "13:00", "assignable": false, "kind": "lunch" },
+        { "index": 5, "label": "5교시", "start": "13:10", "end": "13:50", "assignable": true, "kind": "lesson" }
+      ],
+      "lessonsPerDay": { "0": 4, "4": 4 },
+      "grades": [2]
+    },
+    {
+      "id": "s-3-4", "name": "3·4학년 시간 틀", "cycleDays": 7, "activeDays": [0, 1, 2, 3, 4], "dayStart": "09:00", "dayEnd": "14:40",
+      "slots": [
+        { "index": 0, "label": "1교시", "start": "09:00", "end": "09:40", "assignable": true, "kind": "lesson" },
+        { "index": 1, "label": "2교시", "start": "09:50", "end": "10:30", "assignable": true, "kind": "lesson" },
+        { "index": 2, "label": "3교시", "start": "10:40", "end": "11:20", "assignable": true, "kind": "lesson" },
+        { "index": 3, "label": "4교시", "start": "11:30", "end": "12:10", "assignable": true, "kind": "lesson" },
+        { "index": 4, "label": "점심", "start": "12:10", "end": "13:00", "assignable": false, "kind": "lunch" },
+        { "index": 5, "label": "5교시", "start": "13:10", "end": "13:50", "assignable": true, "kind": "lesson" },
+        { "index": 6, "label": "6교시", "start": "14:00", "end": "14:40", "assignable": true, "kind": "lesson" }
+      ],
+      "grades": [3]
+    }
+  ],
+  "tracks": [
+    { "kind": "track", "id": "t-2-1", "name": "2-1", "specId": "s-1-2", "grade": 2, "homeroomName": "하늘", "attr": { "classNum": 1 } },
+    { "kind": "track", "id": "t-2-2", "name": "2-2", "specId": "s-1-2", "grade": 2, "homeroomName": "바다", "attr": { "classNum": 2 } },
+    { "kind": "track", "id": "t-3-1", "name": "3-1", "specId": "s-3-4", "grade": 3, "homeroomName": "아라", "attr": { "classNum": 1 } },
+    { "kind": "track", "id": "t-3-2", "name": "3-2", "specId": "s-3-4", "grade": 3, "homeroomName": "여울", "attr": { "classNum": 2 } }
+  ],
+  "agents": [
+    { "kind": "agent", "id": "a-eng", "name": "이든", "role": "전담", "tier": 1 },
+    { "kind": "agent", "id": "a-native", "name": "노을", "role": "비교과" },
+    { "kind": "agent", "id": "a-sci", "name": "한별", "role": "전담" },
+    { "kind": "agent", "id": "a-pe", "name": "빛나", "role": "전담" },
+    { "kind": "agent", "id": "a-robot", "name": "샛별", "role": "전담" },
+    { "kind": "agent", "id": "a-sports", "name": "마루", "role": "비교과" }
+  ],
+  "activities": [
+    { "kind": "activity", "id": "act-eng", "name": "영어" },
+    { "kind": "activity", "id": "act-sci", "name": "과학" },
+    { "kind": "activity", "id": "act-pe", "name": "체육" },
+    { "kind": "activity", "id": "act-changje", "name": "창체" },
+    { "kind": "activity", "id": "act-robot", "name": "로봇코딩" }
+  ],
+  "resources": [
+    { "kind": "resource", "id": "r-science", "name": "과학실", "capacity": 1, "activityIds": ["act-sci"] },
+    { "kind": "resource", "id": "r-gym", "name": "체육관", "capacity": 1, "activityIds": ["act-pe"] }
+  ],
+  "timetables": [
+    { "id": "tt-1-2", "name": "1·2학년 2학기", "specId": "s-1-2", "startDate": "2026-09-01", "endDate": "2027-02-28", "priority": 0 },
+    { "id": "tt-3-4", "name": "3·4학년 2학기", "specId": "s-3-4", "startDate": "2026-09-01", "endDate": "2027-02-28", "priority": 0 }
+  ],
+  "demands": [
+    { "id": "d-1", "agentId": "a-eng", "coAgentId": "a-native", "trackId": "t-3-1", "activityId": "act-eng", "count": 3 },
+    { "id": "d-2", "agentId": "a-sci", "trackId": "t-3-1", "activityId": "act-sci", "count": 3, "resourceId": "r-science" },
+    { "id": "d-3", "agentId": "a-pe", "trackId": "t-3-1", "activityId": "act-pe", "count": 2, "resourceId": "r-gym" },
+    { "id": "d-4", "agentId": "a-robot", "trackId": "t-3-1", "activityId": "act-robot", "count": 1 },
+    { "id": "d-5", "agentId": "__homeroom__", "trackId": "t-3-1", "activityId": "act-pe", "count": 1, "resourceId": "r-gym" },
+    { "id": "d-6", "agentId": "a-eng", "coAgentId": "a-native", "trackId": "t-3-2", "activityId": "act-eng", "count": 3 },
+    { "id": "d-7", "agentId": "a-sci", "trackId": "t-3-2", "activityId": "act-sci", "count": 3, "resourceId": "r-science" },
+    { "id": "d-8", "agentId": "a-pe", "trackId": "t-3-2", "activityId": "act-pe", "count": 2, "resourceId": "r-gym" },
+    { "id": "d-9", "agentId": "a-robot", "trackId": "t-3-2", "activityId": "act-robot", "count": 1 },
+    { "id": "d-10", "agentId": "__homeroom__", "trackId": "t-3-2", "activityId": "act-pe", "count": 1, "resourceId": "r-gym" },
+    { "id": "d-11", "agentId": "a-sports", "trackId": "t-2-1", "activityId": "act-pe", "count": 2, "resourceId": "r-gym" },
+    { "id": "d-12", "agentId": "a-sports", "trackId": "t-2-2", "activityId": "act-pe", "count": 2, "resourceId": "r-gym" }
+  ],
+  "assignments": [
+    { "kind": "work", "id": "as-cj-2-1", "timetableId": "tt-1-2", "trackId": "t-2-1", "dayIndex": 2, "slotIndex": 3, "activityId": "act-changje", "agentId": "__homeroom__", "label": "창체", "fixed": true },
+    { "kind": "work", "id": "as-cj-2-2", "timetableId": "tt-1-2", "trackId": "t-2-2", "dayIndex": 2, "slotIndex": 3, "activityId": "act-changje", "agentId": "__homeroom__", "label": "창체", "fixed": true },
+    { "kind": "work", "id": "as-cj-3-1", "timetableId": "tt-3-4", "trackId": "t-3-1", "dayIndex": 2, "slotIndex": 3, "activityId": "act-changje", "agentId": "__homeroom__", "label": "창체", "fixed": true },
+    { "kind": "work", "id": "as-cj-3-2", "timetableId": "tt-3-4", "trackId": "t-3-2", "dayIndex": 2, "slotIndex": 3, "activityId": "act-changje", "agentId": "__homeroom__", "label": "창체", "fixed": true },
+    { "kind": "work", "id": "as-eng-3-1", "timetableId": "tt-3-4", "trackId": "t-3-1", "dayIndex": 0, "slotIndex": 0, "activityId": "act-eng", "agentId": "a-eng", "coAgentId": "a-native" },
+    { "kind": "work", "id": "as-pe-2-1", "timetableId": "tt-1-2", "trackId": "t-2-1", "dayIndex": 1, "slotIndex": 5, "activityId": "act-pe", "agentId": "a-sports", "resourceId": "r-gym" },
+    { "kind": "work", "id": "as-robot-3-2", "timetableId": "tt-3-4", "trackId": "t-3-2", "dayIndex": 1, "slotIndex": 1, "activityId": "act-robot", "agentId": "a-robot" }
+  ],
+  "blackouts": [],
+  "weeklyBlocks": [
+    { "id": "wb-club", "name": "동아리", "dayIndex": 2, "slotIndex": 3, "targets": [] }
+  ],
+  "rules": [],
+  "boards": []
+}

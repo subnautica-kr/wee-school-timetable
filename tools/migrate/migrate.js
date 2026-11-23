@@ -1,6 +1,7 @@
 // 맞추기(원본 ↔ 앱의 지금 자료) · 미리보기 표 · 넣기. 앱에는 HTTP 길로만 닿는다.
 //   지금 자료 읽기 = GET /backup(읽기만 하는 길 · 기관관리자). 다른 GET 은 지금 학기·기본 교과를 만들어 버려서 미리보기에 안 쓴다.
 //   넣기 = 명단 올리기 · 반/교과/특별실/교시 · 시수표 줄 · 시안 저장 · 고정·금지 — 모두 앱 화면이 쓰는 길 그대로.
+import { readFileSync } from 'node:fs';
 import { pickTerm } from './sources.js';
 
 const NEW = 'NEW'; // 미리보기에서 「넣으면 생길 것」
@@ -168,9 +169,19 @@ export function renderTable(rows) {
 
 const snapshot = async (c) => stateFromBackup(await c.ok('GET', c.org('/backup')));
 
+// 교과가 하나도 없는 기관은 넣기 첫머리에 기본 교과(server/presets/subjects.json)가 생긴다 — 미리보기도 그걸 전제로 맞춘다
+function presetSubjects() {
+  try {
+    const j = JSON.parse(readFileSync(new URL('../../server/presets/subjects.json', import.meta.url), 'utf8'));
+    return arr(j.subjects).map(([name, short_name]) => ({ id: 'PRESET', name, short_name }));
+  } catch { return []; }
+}
+
 // 미리보기 — 읽기만(GET /backup 한 번)
 export async function preview(c, src, opts) {
-  const m = match(src, await snapshot(c), opts);
+  const st = await snapshot(c);
+  if (!st.subjects.length && src.subjects.length) st.subjects = presetSubjects();
+  const m = match(src, st, opts);
   return { rows: summarize(src, m), lost: [...src.lost, ...m.lost], m };
 }
 
