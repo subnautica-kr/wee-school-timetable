@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Group, NumberInput, SegmentedControl, SimpleGrid, Stack, TagsInput, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Button, Group, NumberInput, Switch, SegmentedControl, SimpleGrid, Stack, TagsInput, Text, TextInput, Title } from '@mantine/core';
 import { api } from '../api.js';
 import { DEFAULTS, configPath, mergeConfig } from '../orgConfig.js';
 import { SUB_GRADES } from '../../../shared/sub-grades.js';
@@ -52,7 +52,13 @@ export default function OrgConfig({ P }) {
         <div><Text size="sm">강사·보조 선생님</Text><SegmentedControl data={LEVEL} value={c.substitute.assistants} onChange={(v) => setIn('substitute', 'assistants', v)} /></div>
         <div><Text size="sm">급식지도</Text><SegmentedControl data={LEVEL} value={c.substitute.lunchDuty} onChange={(v) => setIn('substitute', 'lunchDuty', v)} /></div>
       </Group>
-      <TagsInput label="담임/전담 구분 목록" value={c.duties} onChange={(v) => set('duties', v)} />
+      <Text fw={600}>한 수업에 선생님 두 분(협력수업)</Text>
+      <Text size="xs" c="dimmed">시수표에서 한 수업에 둘째 선생님을 넣은 칸을 어떻게 다룰지 학교가 고릅니다. 바꿔도 이미 짠 시간표는 그대로이고, 다음부터 적용됩니다.</Text>
+      <Switch label="둘째 선생님으로만 들어간 수업도 결강에 넣기" checked={c.secondTeacher.inSubstitute} onChange={(e) => setIn('secondTeacher', 'inSubstitute', e.currentTarget.checked)}
+        description="켜면: 선생님이 하루 결강을 올릴 때, 협력수업으로 들어간 수업도 함께 보결 대상이 됩니다. 예) 3교시 영어에 보조로 들어가는 선생님이 빠지면 그 시간도 보결을 구합니다. 끄면: 그 선생님이 첫째(주 담당)인 수업만 보결 대상입니다." />
+      <Switch label="자동 생성 점수에 둘째 선생님 수업도 세기" checked={c.secondTeacher.inSoftScore} onChange={(e) => setIn('secondTeacher', 'inSoftScore', e.currentTarget.checked)}
+        description="켜면: 시간표 자동 생성이 둘째 선생님의 수업도 그 선생님 몫으로 세어, 연강이 너무 길거나 하루 수업이 몰리지 않게 고릅니다. 예) 협력수업이 하루 6시간 연달아 잡히는 안은 낮게 평가합니다. 끄면: 첫째(주 담당) 수업만 셉니다. 겹침 경고는 이 설정과 상관없이 늘 둘 다 봅니다." />
+      <TagsInput label="담임/전담 구분 목록" description="담임·전담·비교과처럼 우리 학교에서 쓰는 담당 구분입니다. 사람 목록에서 고를 때 이 말이 나옵니다." value={c.duties} onChange={(v) => set('duties', v)} />
       <Text fw={600}>역할 표시명</Text>
       <Text size="xs" c="dimmed">권한은 그대로이고 화면에 보이는 이름만 바뀝니다. 비우면 원래 이름.</Text>
       <SimpleGrid cols={{ base: 1, xs: 3 }}>

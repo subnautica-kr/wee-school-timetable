@@ -57,7 +57,7 @@ function groupBy(list, keyFn) {
   return m;
 }
 // 교사 기준 규칙이 보는 칸 — 복식으로 묶여 한 수업인 칸(dup)은 한 번만 센다
-const taughtCells = (state) => (state.cells || []).filter((c) => c.teacher_id != null && !c.dup);
+const taughtCells = (state) => [...(state.cells || []), ...(state.secondCells || [])].filter((c) => c.teacher_id != null && !c.dup);
 // 교사·요일별 교시 오름차순 칸
 function teacherDays(state) {
   const taught = taughtCells(state);

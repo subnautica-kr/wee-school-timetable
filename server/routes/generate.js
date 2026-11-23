@@ -136,6 +136,7 @@ export function generateRouter(pool) {
         avoid: org.soft_weights?.avoid ?? {},
         options: org.soft_weights?.options ?? {},
         params: { ...(await loadConfig(pool, o)).softParams, ...(org.soft_weights?.params ?? {}) },
+        secondInSoft: (await loadConfig(pool, o)).secondTeacher.inSoftScore === true, // 권장 점수가 둘째 교사 칸도 세나(기관 설정)
         tiers: Object.fromEntries(tierRows.map((r) => [Number(r.id), r.tier])),
         small: org.small_school ?? {}, // 소규모교 설정
         classrooms,

@@ -137,9 +137,10 @@ export function substituteRouter(pool, opts = {}) {
       let items = d.items ?? [];
       if (d.all_day) {
         const tt = await activeTimetable(req.orgId, d.on_date);
+        const withSecond = (await loadConfig(pool, req.orgId)).secondTeacher.inSubstitute !== false; // 기관 설정: 둘째 교사로만 든 칸도 결강에 넣나
         items = tt ? (await pool.query(
-          `SELECT period, classroom_id FROM cell c WHERE org_id = $1 AND timetable_id = $2 AND (c.membership_id = $3 OR c.second_membership_id = $3) AND weekday = $4 AND deleted_at IS NULL ORDER BY period`,
-          [req.orgId, tt.id, absent, weekdayOf(d.on_date)])).rows : [];
+          `SELECT period, classroom_id FROM cell c WHERE org_id = $1 AND timetable_id = $2 AND (c.membership_id = $3 OR ($5::boolean AND c.second_membership_id = $3)) AND weekday = $4 AND deleted_at IS NULL ORDER BY period`,
+          [req.orgId, tt.id, absent, weekdayOf(d.on_date), withSecond])).rows : [];
       }
       if (!items.length) return res.status(400).json({ error: NO_PERIODS });
       for (const it of items) {
