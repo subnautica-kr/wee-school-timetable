@@ -4,3 +4,6 @@ node_modules/
 report.md
 secrets/
 web/dist/
+dbdump*
+!dbdump*.js
+*.json.gz
