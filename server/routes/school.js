@@ -3,6 +3,7 @@ import express from 'express';
 import { z } from 'zod';
 import { requireOrgAction } from '../guard.js';
 import { audit } from '../audit.js';
+import { inTx, removeWithCascade } from '../cascade.js';
 import { periodsMax } from '../../shared/periods.js';
 import { CEIL, dutyWarnings, limitWarnings, loadConfig, semesterOf, withWarnings } from '../orgConfig.js';
 
@@ -21,8 +22,17 @@ const notFound = (res) => res.status(404).json({ error: '없습니다' });
 const bad = (res) => res.status(400).json({ error: '입력을 확인해 주세요' });
 const dup = (res) => res.status(409).json({ error: '이미 같은 것이 있습니다' });
 const guard = (fn) => async (req, res, next) => {
-  try { await fn(req, res); } catch (e) { e.code === '23505' ? dup(res) : next(e); }
+  try { await fn(req, res); } catch (e) { e.code === '23505' ? dup(res) : e.expose ? res.status(e.status).json({ error: e.message }) : next(e); }
 };
+// 지우기 — 딸린 것까지 한 묶음으로(server/cascade.js 관계표). 응답 { ok, batchId } · 묶음 번호로 휴지통에서 되살린다
+const removeRoute = (pool, kind) => guard(async (req, res) => {
+  const p = id.safeParse(req.params.id);
+  if (!p.success) return notFound(res);
+  const out = await inTx(pool, (c) => removeWithCascade(c, req.orgId, kind, p.data, req.session.userId));
+  if (!out) return notFound(res);
+  await audit(pool, { orgId: req.orgId, userId: req.session.userId, action: `${kind}.delete`, table: kind, rowId: p.data, after: { name: out.label, batch: out.batchId } });
+  res.json({ ok: true, batchId: out.batchId });
+});
 
 // 지금 학기(없으면 만든다). 기관 경계: 항상 org_id 로만.
 export async function currentTerm(pool, orgId) {
@@ -242,12 +252,7 @@ export function schoolRouter(pool) {
     const { rows } = await pool.query(`UPDATE classroom SET ${sets.join(', ')} WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL RETURNING id, grade, class_no, student_count, homeroom_membership_id`, vals);
     rows[0] ? res.json(withWarnings(rows[0], limitWarnings(await loadConfig(pool, req.orgId), { students: p.data.student_count ?? 0 }))) : notFound(res);
   }));
-  r.delete('/classrooms/:id', manage, guard(async (req, res) => {
-    const cid = id.safeParse(req.params.id);
-    if (!cid.success) return notFound(res);
-    const { rowCount } = await pool.query(`UPDATE classroom SET deleted_at = now() WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`, [cid.data, req.orgId]);
-    rowCount ? res.json({ ok: true }) : notFound(res);
-  }));
+  r.delete('/classrooms/:id', manage, removeRoute(pool, 'classroom'));
 
   // ── 교과 ──
   r.get('/subjects', view, guard(async (req, res) => {
@@ -313,12 +318,7 @@ export function schoolRouter(pool) {
     );
     rows[0] ? res.json(rows[0]) : notFound(res);
   }));
-  r.delete('/subjects/:id', manage, guard(async (req, res) => {
-    const sid = id.safeParse(req.params.id);
-    if (!sid.success) return notFound(res);
-    const { rowCount } = await pool.query(`UPDATE subject SET deleted_at = now() WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`, [sid.data, req.orgId]);
-    rowCount ? res.json({ ok: true }) : notFound(res);
-  }));
+  r.delete('/subjects/:id', manage, removeRoute(pool, 'subject'));
 
   // ── 특별실(수업용/예약용) ──
   r.get('/special-rooms', view, guard(async (req, res) => {
@@ -341,12 +341,7 @@ export function schoolRouter(pool) {
     );
     rows[0] ? res.json(withWarnings(rows[0], limitWarnings(await loadConfig(pool, req.orgId), { capacity: p.data.capacity ?? 0 }))) : notFound(res);
   }));
-  r.delete('/special-rooms/:id', manage, guard(async (req, res) => {
-    const rid = id.safeParse(req.params.id);
-    if (!rid.success) return notFound(res);
-    const { rowCount } = await pool.query(`UPDATE special_room SET deleted_at = now() WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`, [rid.data, req.orgId]);
-    rowCount ? res.json({ ok: true }) : notFound(res);
-  }));
+  r.delete('/special-rooms/:id', manage, removeRoute(pool, 'special_room'));
 
   // ── 「전담·비교과」 탭: 담당 구분이 전담·비교과인 소속 ──
   r.get('/specialists', view, guard(async (req, res) => {

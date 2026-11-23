@@ -8,14 +8,15 @@ export const ACTION_LABEL = {
   'roster.create': '명단 추가', 'roster.concurrent-add': '겸임 데려옴', 'roster.import': '명단 가져옴', 'roster.lock': '계정 잠금', 'roster.reset-password': '비밀번호 초기화', 'roster.unlock': '계정 잠금 풂', 'roster.update': '명단 고침',
   'school.quick_start': '빠른 시작(반·교시 한 번에 만듦)', 'small-school.save': '작은 학교 설정 저장', 'soft-weights.save': '권장 규칙 설정 저장',
   'substitute.assign': '보결 지정', 'substitute.cancel': '보결 취소', 'substitute.create': '보결 올림', 'substitute.release': '보결 풂', 'substitute.take': '보결 맡음',
+  'classroom.delete': '반 지움', 'special_room.delete': '특별실 지움', 'subject.delete': '교과 지움', 'trash.restore': '지운 것 되살림',
   'term.import_previous': '지난 학기 가져옴', 'term.new_semester': '새 학기 시작',
-  'timetable.confirm': '시간표 확정', 'timetable.edit_confirmed': '확정본 직접 고침', 'timetable.save': '시안 저장',
+  'timetable.confirm': '시간표 확정', 'timetable.edit_confirmed': '확정본 직접 고침', 'timetable.save': '시안 저장', 'timetable.delete': '시간표 지움',
 };
 export const TABLE_LABEL = {
-  app_user: '계정', attendance: '근태', booking: '예약', membership: '명단', month_close: '근태 마감', org: '기관', room_lock: '특별실 잠금', substitute: '보결', term: '학기', timetable: '시간표',
+  app_user: '계정', attendance: '근태', booking: '예약', classroom: '반', delete_batch: '지운 묶음', special_room: '특별실', subject: '교과', membership: '명단', month_close: '근태 마감', org: '기관', room_lock: '특별실 잠금', substitute: '보결', term: '학기', timetable: '시간표',
 };
 const KEY_LABEL = {
-  on_date: '날짜', date: '날짜', starts_on: '적용 시작일', name: '이름', hours: '시간', ym: '해당 월', role: '역할', status: '상태', grade: '등급', taken: '맡은 사람', by: '올린 사람', for: '결강 교사', ids: '건수',
+  on_date: '날짜', date: '날짜', starts_on: '적용 시작일', name: '이름', hours: '시간', ym: '해당 월', role: '역할', status: '상태', grade: '등급', taken: '맡은 사람', by: '올린 사람', for: '결강 교사', ids: '건수', batch: '묶음 번호',
   classes: '반 수', periods: '교시 수', classrooms: '반', loads: '시수', cells: '칸 수', made: '만든 수', failed: '실패 수', from: '이전 학기', cell: '칸', reason: '사유',
   swap: '두 칸 맞바꿈', weekday: '요일', period: '교시', classroom_id: '반', start: '시작', end: '끝',
 };

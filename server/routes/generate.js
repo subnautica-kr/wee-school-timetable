@@ -7,6 +7,7 @@ import { appliedTimetable } from '../applied.js';
 import { currentTerm } from './school.js';
 import { CEIL, limitWarnings, loadConfig, periodsOf, withWarnings } from '../orgConfig.js';
 import { audit } from '../audit.js';
+import { removeWithCascade } from '../cascade.js';
 import { expandMaster } from './loads.js';
 
 // 자동 생성 짝 — 생성 자체는 브라우저 웹 워커가 한다. 서버는 재료 내주기 · 시안 저장 · 복제 · 삭제 · 확정만.
@@ -179,17 +180,16 @@ export function generateRouter(pool) {
     } catch (e) { dupOr(res, next)(e); }
   });
 
-  // 시안 지우기(표시만 지움 · 칸도 같이)
+  // 시안 지우기(표시만 지움 · 칸도 같이 — server/cascade.js 관계표 · 묶음 번호로 휴지통에서 되살린다)
   r.delete('/timetables/:tid', edit, async (req, res, next) => {
     try {
       const tt = await getTt(req);
       if (!tt) return notFound(res);
-      await tx(async (c) => {
-        await c.query(`UPDATE cell SET deleted_at = now() WHERE org_id = $1 AND timetable_id = $2 AND deleted_at IS NULL`, [req.orgId, tt.id]);
-        await c.query(`UPDATE timetable SET deleted_at = now() WHERE id = $1 AND org_id = $2`, [tt.id, req.orgId]);
-      });
-      res.json({ ok: true });
-    } catch (e) { next(e); }
+      const out = await tx((c) => removeWithCascade(c, req.orgId, 'timetable', tt.id, req.session.userId));
+      if (!out) return notFound(res);
+      await audit(pool, { orgId: req.orgId, userId: req.session.userId, action: 'timetable.delete', table: 'timetable', rowId: tt.id, after: { name: out.label, batch: out.batchId } });
+      res.json({ ok: true, batchId: out.batchId });
+    } catch (e) { e.expose ? res.status(e.status).json({ error: e.message }) : next(e); }
   });
 
   // 확정 — 적용 시작일과 함께. 확정은 여럿이어도 된다. 같은 시작일 확정본이 있으면 알림만 붙인다.
