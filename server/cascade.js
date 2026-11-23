@@ -10,53 +10,53 @@ const SCOPE = { teaching_load: LIVE_TERM, pin: LIVE_TERM, substitute: LIVE_TERM,
 
 // 관계표. 한 줄 = 딸린 표 하나의 처리.
 //   col: 대상 id 를 가리키는 칸($1) · match: col 대신 쓰는 조건 · extra: 더 거르는 조건
-//   action: 'delete' = 행을 같이 지움 · 'null' = 그 칸만 비움(행은 남김) · also: 칸을 비울 때 같이 바꾸는 칸 { 칸: [원래, 바꿀 값] }
+//   how: 'delete' = 행을 같이 지움 · 'null' = 그 칸만 비움(행은 남김) · also: 칸을 비울 때 같이 바꾸는 칸 { 칸: [원래, 바꿀 값] }
 export const RELATIONS = {
   classroom: [
-    { table: 'teaching_load', col: 'classroom_id', action: 'delete', label: '시수 줄' },
-    { table: 'cell', col: 'classroom_id', action: 'delete', label: '시간표 칸' },
-    { table: 'pin', col: 'target_id', extra: `target_kind = '반'`, action: 'delete', label: '고정·금지 칸' },
-    { table: 'substitute', col: 'classroom_id', action: 'delete', label: '보결' },
-    { table: 'booking', col: 'classroom_id', action: 'delete', label: '특별실 예약' },
+    { table: 'teaching_load', col: 'classroom_id', how: 'delete', label: '시수 줄' },
+    { table: 'cell', col: 'classroom_id', how: 'delete', label: '시간표 칸' },
+    { table: 'pin', col: 'target_id', extra: `target_kind = '반'`, how: 'delete', label: '고정·금지 칸' },
+    { table: 'substitute', col: 'classroom_id', how: 'delete', label: '보결' },
+    { table: 'booking', col: 'classroom_id', how: 'delete', label: '특별실 예약' },
   ],
   membership: [
-    { table: 'teaching_load', col: 'membership_id', action: 'null', label: '시수 줄의 교사(줄은 남김)' },
-    { table: 'teaching_load', col: 'second_membership_id', action: 'null', label: '시수 줄의 둘째 교사(줄은 남김)' },
-    { table: 'cell', col: 'membership_id', action: 'null', label: '시간표 칸의 교사(칸은 남김)' },
-    { table: 'cell', col: 'second_membership_id', action: 'null', label: '시간표 칸의 둘째 교사(칸은 남김)' },
-    { table: 'classroom', col: 'homeroom_membership_id', action: 'null', label: '담임 지정(반은 남김)' },
-    { table: 'pin', col: 'target_id', extra: `target_kind = '교사'`, action: 'delete', label: '고정·금지 칸' },
-    { table: 'substitute', col: 'absent_membership_id', extra: FUTURE, action: 'delete', label: '오늘부터의 보결(결강)' },
-    { table: 'substitute', col: 'taken_membership_id', extra: FUTURE, action: 'null', also: { status: ['맡음', '열림'] }, label: '오늘부터 맡은 보결(다시 열림)' },
-    { table: 'booking', col: 'membership_id', extra: FUTURE, action: 'delete', label: '오늘부터의 특별실 예약' },
-    { table: 'attendance', col: 'membership_id', extra: FUTURE, action: 'delete', label: '오늘부터의 근태' },
-    { table: 'attendance_allowed', col: 'membership_id', action: 'delete', label: '허용 교과' },
+    { table: 'teaching_load', col: 'membership_id', how: 'null', label: '시수 줄의 교사(줄은 남김)' },
+    { table: 'teaching_load', col: 'second_membership_id', how: 'null', label: '시수 줄의 둘째 교사(줄은 남김)' },
+    { table: 'cell', col: 'membership_id', how: 'null', label: '시간표 칸의 교사(칸은 남김)' },
+    { table: 'cell', col: 'second_membership_id', how: 'null', label: '시간표 칸의 둘째 교사(칸은 남김)' },
+    { table: 'classroom', col: 'homeroom_membership_id', how: 'null', label: '담임 지정(반은 남김)' },
+    { table: 'pin', col: 'target_id', extra: `target_kind = '교사'`, how: 'delete', label: '고정·금지 칸' },
+    { table: 'substitute', col: 'absent_membership_id', extra: FUTURE, how: 'delete', label: '오늘부터의 보결(결강)' },
+    { table: 'substitute', col: 'taken_membership_id', extra: FUTURE, how: 'null', also: { status: ['맡음', '열림'] }, label: '오늘부터 맡은 보결(다시 열림)' },
+    { table: 'booking', col: 'membership_id', extra: FUTURE, how: 'delete', label: '오늘부터의 특별실 예약' },
+    { table: 'attendance', col: 'membership_id', extra: FUTURE, how: 'delete', label: '오늘부터의 근태' },
+    { table: 'attendance_allowed', col: 'membership_id', how: 'delete', label: '허용 교과' },
   ],
   subject: [
-    { table: 'teaching_load', col: 'subject_id', action: 'delete', label: '시수 줄' },
-    { table: 'cell', col: 'subject_id', action: 'null', label: '시간표 칸의 교과(칸은 남김)' },
-    { table: 'pin', col: 'subject_id', action: 'delete', label: '고정 칸' },
-    { table: 'attendance_allowed', col: 'subject_id', action: 'delete', label: '허용 교과' },
+    { table: 'teaching_load', col: 'subject_id', how: 'delete', label: '시수 줄' },
+    { table: 'cell', col: 'subject_id', how: 'null', label: '시간표 칸의 교과(칸은 남김)' },
+    { table: 'pin', col: 'subject_id', how: 'delete', label: '고정 칸' },
+    { table: 'attendance_allowed', col: 'subject_id', how: 'delete', label: '허용 교과' },
   ],
   special_room: [
-    { table: 'teaching_load', col: 'special_room_id', action: 'null', label: '시수 줄의 특별실(줄은 남김)' },
-    { table: 'cell', col: 'special_room_id', action: 'null', label: '시간표 칸의 특별실(칸은 남김)' },
-    { table: 'pin', col: 'target_id', extra: `target_kind = '특별실'`, action: 'delete', label: '고정·금지 칸' },
-    { table: 'booking', col: 'special_room_id', extra: FUTURE, action: 'delete', label: '오늘부터의 예약' },
-    { table: 'room_lock', col: 'special_room_id', action: 'delete', label: '특별실 잠금' },
+    { table: 'teaching_load', col: 'special_room_id', how: 'null', label: '시수 줄의 특별실(줄은 남김)' },
+    { table: 'cell', col: 'special_room_id', how: 'null', label: '시간표 칸의 특별실(칸은 남김)' },
+    { table: 'pin', col: 'target_id', extra: `target_kind = '특별실'`, how: 'delete', label: '고정·금지 칸' },
+    { table: 'booking', col: 'special_room_id', extra: FUTURE, how: 'delete', label: '오늘부터의 예약' },
+    { table: 'room_lock', col: 'special_room_id', how: 'delete', label: '특별실 잠금' },
   ],
   timetable: [
-    { table: 'cell', col: 'timetable_id', action: 'delete', label: '시간표 칸' },
+    { table: 'cell', col: 'timetable_id', how: 'delete', label: '시간표 칸' },
   ],
   term: [
-    { table: 'timetable', col: 'term_id', action: 'delete', label: '시간표' },
-    { table: 'cell', match: `timetable_id IN (SELECT id FROM timetable WHERE term_id = $1)`, action: 'delete', label: '시간표 칸' },
-    { table: 'teaching_load', col: 'term_id', action: 'delete', label: '시수 줄' },
-    { table: 'pin', col: 'term_id', action: 'delete', label: '고정·금지 칸' },
-    { table: 'substitute', col: 'term_id', action: 'delete', label: '보결' },
-    { table: 'attendance', col: 'term_id', action: 'delete', label: '근태' },
-    { table: 'booking', match: `classroom_id IN (SELECT id FROM classroom WHERE term_id = $1)`, action: 'delete', label: '반에 걸린 특별실 예약' },
-    { table: 'classroom', col: 'term_id', action: 'delete', label: '반' },
+    { table: 'timetable', col: 'term_id', how: 'delete', label: '시간표' },
+    { table: 'cell', match: `timetable_id IN (SELECT id FROM timetable WHERE term_id = $1)`, how: 'delete', label: '시간표 칸' },
+    { table: 'teaching_load', col: 'term_id', how: 'delete', label: '시수 줄' },
+    { table: 'pin', col: 'term_id', how: 'delete', label: '고정·금지 칸' },
+    { table: 'substitute', col: 'term_id', how: 'delete', label: '보결' },
+    { table: 'attendance', col: 'term_id', how: 'delete', label: '근태' },
+    { table: 'booking', match: `classroom_id IN (SELECT id FROM classroom WHERE term_id = $1)`, how: 'delete', label: '반에 걸린 특별실 예약' },
+    { table: 'classroom', col: 'term_id', how: 'delete', label: '반' },
   ],
 };
 
@@ -73,14 +73,14 @@ export const KINDS = Object.keys(TARGET);
 
 // 되살리기가 쓰는 칸 이름은 DB 에서 읽으므로 이 목록 밖이면 거부한다(SQL 에 끼우는 이름의 허용 목록)
 const TABLES = new Set([...Object.values(TARGET).map((t) => t.table), ...Object.values(RELATIONS).flat().map((r) => r.table)]);
-const COLUMNS = new Set(Object.values(RELATIONS).flat().filter((r) => r.action === 'null').flatMap((r) => [r.col, ...Object.keys(r.also ?? {})]));
+const COLUMNS = new Set(Object.values(RELATIONS).flat().filter((r) => r.how === 'null').flatMap((r) => [r.col, ...Object.keys(r.also ?? {})]));
 const COL_TYPE = (c) => (c === 'status' ? 'text' : 'bigint');
 
 export function httpError(status, message) {
   return Object.assign(new Error(message), { status, expose: true });
 }
 
-const whereOf = (rel) => [rel.match ?? `${rel.col} = $1`, `org_id = $2`, `deleted_at IS NULL`, rel.extra, SCOPE[rel.table]].filter(Boolean).join(' AND ');
+const whereOf = (rel) => [rel.match ?? [rel.col, '= $1'].join(' '), `org_id = $2`, `deleted_at IS NULL`, rel.extra, SCOPE[rel.table]].filter(Boolean).join(' AND ');
 
 // 지운 시각 = 묶음 시각($3 = 묶음 번호). 되살리기는 이 시각과 같은 것만 푼다.
 const STAMP = `(SELECT created_at FROM delete_batch WHERE id = $3)`;
@@ -89,10 +89,15 @@ const STAMP = `(SELECT created_at FROM delete_batch WHERE id = $3)`;
 async function findTarget(db, orgId, kind, id, { deleted = false, lock = false } = {}) {
   const t = TARGET[kind];
   if (!t) return null;
+  // 끼우는 조각은 전부 TARGET 상수에서 나온 지역 이름이다(sec-injection 시험의 허용 이름)
+  const { table } = t;
+  const nameSql = t.name;
+  const termSql = t.term;
+  const guard = [deleted ? '' : 'AND x.deleted_at IS NULL', lock ? 'FOR UPDATE OF x' : ''].join(' ');
   const { rows } = await db.query(
-    `SELECT x.id, ${t.name} AS label, ${t.term} AS term_id, x.deleted_at,
-            (SELECT status = '보관' FROM term WHERE id = ${t.term}) AS archived
-       FROM ${t.table} x WHERE x.id = $1 AND x.org_id = $2 ${deleted ? '' : 'AND x.deleted_at IS NULL'} ${lock ? 'FOR UPDATE OF x' : ''}`,
+    `SELECT x.id, ${nameSql} AS label, ${termSql} AS term_id, x.deleted_at,
+            (SELECT status = '보관' FROM term WHERE id = ${termSql}) AS archived
+       FROM ${table} x WHERE x.id = $1 AND x.org_id = $2 ${guard}`,
     [id, orgId],
   );
   return rows[0] ?? null;
@@ -106,8 +111,9 @@ async function confirmedHits(db, orgId, kind, id) {
     for (const r of (await db.query(`SELECT id FROM timetable WHERE ${col} = $1 AND org_id = $2 AND deleted_at IS NULL AND status = '확정'`, [id, orgId])).rows) ids.add(r.id);
   }
   for (const rel of RELATIONS[kind].filter((x) => x.table === 'cell')) {
+    const where = whereOf(rel);
     const { rows } = await db.query(
-      `SELECT DISTINCT timetable_id FROM cell WHERE ${whereOf(rel)} AND timetable_id IN (SELECT id FROM timetable WHERE org_id = $2 AND status = '확정' AND deleted_at IS NULL)`,
+      `SELECT DISTINCT timetable_id FROM cell WHERE ${where} AND timetable_id IN (SELECT id FROM timetable WHERE org_id = $2 AND status = '확정' AND deleted_at IS NULL)`,
       [id, orgId],
     );
     for (const r of rows) ids.add(r.timetable_id);
@@ -121,8 +127,10 @@ export async function preview(db, orgId, kind, id) {
   if (!t) return null;
   const effects = [];
   for (const rel of RELATIONS[kind]) {
-    const n = (await db.query(`SELECT count(*)::int AS n FROM ${rel.table} WHERE ${whereOf(rel)}`, [id, orgId])).rows[0].n;
-    if (n) effects.push({ table: rel.table, label: rel.label, count: n, action: rel.action });
+    const { table } = rel;
+    const where = whereOf(rel);
+    const n = (await db.query(`SELECT count(*)::int AS n FROM ${table} WHERE ${where}`, [id, orgId])).rows[0].n;
+    if (n) effects.push({ table: rel.table, label: rel.label, count: n, action: rel.how });
   }
   const warnings = [];
   if (t.archived) warnings.push('보관된 학기 자료라 지울 수 없습니다');
@@ -153,15 +161,18 @@ export async function removeWithCascade(client, orgId, kind, id, userId) {
   const effects = [];
   for (const rel of RELATIONS[kind]) {
     let items;
-    if (rel.action === 'delete') {
-      const { rows } = await client.query(`UPDATE ${rel.table} SET deleted_at = ${STAMP} WHERE ${whereOf(rel)} RETURNING id`, [id, orgId, batchId]);
+    const { table } = rel;
+    const where = whereOf(rel);
+    if (rel.how === 'delete') {
+      const { rows } = await client.query(`UPDATE ${table} SET deleted_at = ${STAMP} WHERE ${where} RETURNING id`, [id, orgId, batchId]);
       items = rows.map((r) => ({ id: r.id }));
     } else {
       const also = Object.entries(rel.also ?? {});
-      const { rows } = await client.query(`SELECT id${also.map(([c]) => `, ${c}`).join('')} FROM ${rel.table} WHERE ${whereOf(rel)} FOR UPDATE`, [id, orgId]);
+      const pickCols = also.map(([c]) => ', ' + c).join('');
+      const { rows } = await client.query(`SELECT id${pickCols} FROM ${table} WHERE ${where} FOR UPDATE`, [id, orgId]);
       if (rows.length) {
         const sets = [`${rel.col} = NULL`, ...also.map(([c, [from, to]]) => `${c} = CASE WHEN ${c} = '${from}' THEN '${to}' ELSE ${c} END`)];
-        await client.query(`UPDATE ${rel.table} SET ${sets.join(', ')} WHERE id = ANY($1::bigint[]) AND org_id = $2`, [rows.map((r) => r.id), orgId]);
+        await client.query(`UPDATE ${table} SET ${sets.join(', ')} WHERE id = ANY($1::bigint[]) AND org_id = $2`, [rows.map((r) => r.id), orgId]);
       }
       items = rows.flatMap((r) => [
         { id: r.id, col: rel.col, old: String(id), new: null },
@@ -169,9 +180,10 @@ export async function removeWithCascade(client, orgId, kind, id, userId) {
       ]);
     }
     await addItems(client, batchId, rel.table, items);
-    if (items.length) effects.push({ table: rel.table, label: rel.label, count: rel.action === 'delete' ? items.length : items.filter((x) => x.col === rel.col).length, action: rel.action });
+    if (items.length) effects.push({ table: rel.table, label: rel.label, count: rel.how === 'delete' ? items.length : items.filter((x) => x.col === rel.col).length, action: rel.how });
   }
-  await client.query(`UPDATE ${TARGET[kind].table} SET deleted_at = ${STAMP} WHERE id = $1 AND org_id = $2`, [id, orgId, batchId]);
+  const table = TARGET[kind].table;
+  await client.query(`UPDATE ${table} SET deleted_at = ${STAMP} WHERE id = $1 AND org_id = $2`, [id, orgId, batchId]);
   await addItems(client, batchId, TARGET[kind].table, [{ id }]);
   await client.query(`UPDATE delete_batch SET summary = $2 WHERE id = $1`, [batchId, JSON.stringify(effects)]);
   return { batchId: Number(batchId), label: t.label, effects };
@@ -217,8 +229,9 @@ export async function restoreBatch(client, orgId, batchId) {
     for (const [k, list] of byCol) {
       const [table, col] = k.split('.');
       if (!TABLES.has(table) || !COLUMNS.has(col)) continue;
+      const colType = COL_TYPE(col);
       restored += (await client.query(
-        `UPDATE ${table} t SET ${col} = v.old::${COL_TYPE(col)}
+        `UPDATE ${table} t SET ${col} = v.old::${colType}
            FROM unnest($1::bigint[], $2::text[], $3::text[]) AS v(id, old, new)
           WHERE t.id = v.id AND t.org_id = $4 AND t.${col}::text IS NOT DISTINCT FROM v.new`,
         [list.map((x) => x.row_id), list.map((x) => x.old_value), list.map((x) => x.new_value), orgId],

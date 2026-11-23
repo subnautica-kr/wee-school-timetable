@@ -84,6 +84,8 @@ test('DB 통째 백업·되넣기', { skip: (!HAS_DB && 'DB 없음') || (!SAFE_D
     const doc = JSON.parse(zlib.gunzipSync(readFileSync(file)).toString('utf8'));
     doc.schemaMigrations = doc.schemaMigrations.slice(0, -1);
     // 011(두 번째 교사)이 더한 열을 덤프에서도 뺀다 — 011 을 모르는 옛 서버의 덤프 흉내
+    // 012(지우기 묶음)가 더한 표 둘도 덤프에서 뺀다 — 마지막 마이그레이션(012)을 모르는 옛 서버의 덤프 흉내
+    for (const n of ['delete_batch', 'delete_batch_item']) delete doc.tables[n];
     for (const tb of Object.values(doc.tables)) { tb.columns = tb.columns.filter((c) => !['second_membership_id', 'second_hours'].includes(c.name)); }
     const old = path.join(tmp, 'old.json.gz');
     writeFileSync(old, zlib.gzipSync(Buffer.from(JSON.stringify(doc))));

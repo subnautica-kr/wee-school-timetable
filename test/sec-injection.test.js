@@ -11,7 +11,10 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'serv
 const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : e.name.endsWith('.js') ? [path.join(d, e.name)] : []));
 
 // SQL 안에 끼워도 되는 것: 코드에 박힌 열 목록·조각 상수, 스키마 키로만 만든 SET 목록, 숫자로 바꾼 값
-const SAFE = new Set(['COLS', 'CELL_COLS', 'SEL', 'BSEL', 'table', 'where', "sets.join(', ')"]);
+const SAFE = new Set(['COLS', 'CELL_COLS', 'SEL', 'BSEL', 'table', 'where', "sets.join(', ')",
+  // cascade.js(T-1211): 아래는 전부 관계표 RELATIONS·TARGET 상수에서 나온 지역 이름이거나 코드 상수다.
+  // 되살리기가 DB 에서 읽은 표·칸 이름은 TABLES·COLUMNS 허용 집합에 든 것만 여기까지 온다(밖이면 continue).
+  'STAMP', 'nameSql', 'termSql', 'guard', 'col', 'colType', 'pickCols']);
 const SAFE_RE = /^Number\([\w.]+\)$/;
 
 test('정적 검사: SQL 문자열에 값을 이어 붙인 곳이 없다(끼워 넣는 건 상수뿐)', () => {
