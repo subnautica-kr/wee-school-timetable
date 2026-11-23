@@ -4,6 +4,8 @@ import { requireOrgAction } from '../guard.js';
 import { applyLevels, getRuleLevels } from '../rules.js';
 import { currentTerm } from './school.js';
 import { CEIL, limitWarnings, loadConfig, withWarnings } from '../orgConfig.js';
+import { makeLoadTemplate, parseLoadRows } from '../export/loadsImport.js';
+import { readTable } from '../export/import.js';
 
 // 시수표. 거부하지 않는다 — 덜 채운 줄(교사·교과·시수가 빈 줄)도 그대로 보관하고 목록으로 알린다.
 // 반 칸이 비면(classroom_id NULL) 「전체 마스터」: 모든 반에 적용된다.
@@ -89,6 +91,69 @@ export function loadsRouter(pool) {
       const s = await snapshot(req);
       const cls = (await pool.query(`SELECT id, grade, class_no FROM classroom WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL ORDER BY grade, class_no`, [req.orgId, s.term.id])).rows;
       res.json({ term: s.term, lines: expandMaster(s.lines, cls) });
+    } catch (e) { next(e); }
+  });
+
+  // ── 엑셀 올리기: 양식 · 미리보기(쓰지 않음) · 반영. 담임 과목 올리기(homeroom-subjects)와 같은 흐름 ──
+  r.get('/loads/template', edit, async (req, res, next) => {
+    try {
+      res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.set('Content-Disposition', 'attachment; filename="loads-template.xlsx"');
+      res.send(await makeLoadTemplate());
+    } catch (e) { next(e); }
+  });
+  const raw = express.raw({ type: 'application/octet-stream', limit: '5mb' });
+  r.post('/loads/preview', edit, raw, async (req, res, next) => {
+    try {
+      if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: '파일을 확인해 주세요' });
+      let table;
+      try { table = await readTable(req.body); } catch (e) {
+        return res.status(400).json({ error: e.status === 400 ? e.message : '파일을 읽지 못했습니다. 한글에서 hwpx·엑셀로 다른 이름 저장 해 주세요' });
+      }
+      const t = await currentTerm(pool, req.orgId);
+      const classrooms = (await pool.query(`SELECT id, grade, class_no FROM classroom WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL`, [req.orgId, t.id])).rows;
+      const subjects = (await pool.query(`SELECT id, name, short_name FROM subject WHERE org_id = $1 AND deleted_at IS NULL`, [req.orgId])).rows;
+      const people = (await pool.query(
+        `SELECT m.id AS membership_id, u.name, u.login_id FROM membership m JOIN app_user u ON u.id = m.user_id WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.status = '사용'`,
+        [req.orgId],
+      )).rows;
+      const rows = parseLoadRows(table, { people, classrooms, subjects });
+      res.json({ rows, ok: rows.filter((x) => x.ok).length, unread: rows.filter((x) => !x.ok).length, blankTeacher: rows.filter((x) => x.blank_teacher_ok).length });
+    } catch (e) { next(e); }
+  });
+  // 읽힌 줄만 넣는다. 교사·교과·반(학년)이 같은 줄이 이미 있으면 시수·연강만 고친다(같은 파일을 또 올려도 두 배가 되지 않음).
+  // membership_id 가 null 인 줄은 「교사 빈 줄」 — 화면이 「교사 빈 줄로 받기」를 켰을 때만 보낸다.
+  const applyBody = z.object({ rows: z.array(z.object({
+    membership_id: ref,
+    subject_id: id,
+    classroom_ids: z.array(id).max(CEIL.classNo).nullable(),
+    hours: z.number().int().min(1).max(CEIL.loadPerWeek),
+    block: z.number().int().min(1).max(CEIL.block).default(1),
+  })).max(500) });
+  r.post('/loads/apply', edit, async (req, res, next) => {
+    try {
+      const p = applyBody.safeParse(req.body);
+      if (!p.success) return res.status(400).json({ error: '입력을 확인해 주세요' });
+      const t = await currentTerm(pool, req.orgId);
+      const okCls = new Set((await pool.query(`SELECT id FROM classroom WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL`, [req.orgId, t.id])).rows.map((x) => Number(x.id)));
+      let created = 0; let updated = 0; let skipped = 0;
+      for (const x of p.data.rows) {
+        const mem = x.membership_id ?? null;
+        const sb = (await pool.query(`SELECT 1 FROM subject WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`, [x.subject_id, req.orgId])).rows[0];
+        const mm = mem ? (await pool.query(`SELECT 1 FROM membership WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`, [mem, req.orgId])).rows[0] : true;
+        const targets = x.classroom_ids ?? [null];
+        if (!sb || !mm || !targets.length || targets.some((c) => c !== null && !okCls.has(c))) { skipped++; continue; }
+        for (const c of targets) {
+          const up = await pool.query(
+            `UPDATE teaching_load SET weekly_hours = $6, block = $7 WHERE org_id = $1 AND term_id = $2 AND classroom_id IS NOT DISTINCT FROM $3::bigint AND subject_id = $4 AND membership_id IS NOT DISTINCT FROM $5::bigint AND deleted_at IS NULL`,
+            [req.orgId, t.id, c, x.subject_id, mem, x.hours, x.block]);
+          if (up.rowCount) { updated++; continue; }
+          await pool.query(`INSERT INTO teaching_load (org_id, term_id, membership_id, subject_id, classroom_id, weekly_hours, block) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [req.orgId, t.id, mem, x.subject_id, c, x.hours, x.block]);
+          created++;
+        }
+      }
+      const warnings = limitWarnings(await loadConfig(pool, req.orgId), { loadPerWeek: Math.max(0, ...p.data.rows.map((x) => x.hours)), block: Math.max(0, ...p.data.rows.map((x) => x.block)) });
+      res.json(withWarnings({ applied: created + updated, created, updated, skipped }, warnings));
     } catch (e) { next(e); }
   });
 

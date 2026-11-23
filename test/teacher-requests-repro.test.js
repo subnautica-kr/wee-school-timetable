@@ -16,10 +16,10 @@ const baseCtx = (over = {}) => ({
   cells: [], members: [], absentIds: new Set(), pins: [], takenIds: new Set(), ...over,
 });
 
-test('(가) 반 없는 담임은 보결 후보에서 빠진다 — 담임을 붙이면 후보', () => {
+test('(가) 반 없는 담임은 후보 D 에 경고로 남는다 — 담임을 붙이면 판정 등급(T-1204 보정)', () => {
   const noRoom = rankCandidates(baseCtx({ members: [{ id: 1, name: '가', duty: '담임', homeroom: null }] }));
-  assert.deepEqual(noRoom.excluded.map((x) => x.code), ['no-homeroom']); // T-1203 반영: 「수업 중」이 아니라 「반이 안 붙은 담임」
-  assert.equal(noRoom.candidates.length, 0);
+  assert.deepEqual(noRoom.excluded, []); // T-1204 보정: 빼지 않는다
+  assert.deepEqual(noRoom.candidates.map((x) => [x.grade, x.warn.code]), [['D', 'no-homeroom']]);
   // 대조 — 반을 붙이고 그 반 칸을 전담이 가르치면 A 등급 후보
   const withRoom = rankCandidates(baseCtx({
     members: [{ id: 1, name: '가', duty: '담임', homeroom: { id: 10, grade: 1 } }, { id: 2, name: '나', duty: '전담', homeroom: null }],
@@ -78,11 +78,10 @@ test('6번: 시수표·칸에는 둘째 교사를 담을 열이 없다', { skip:
   }
 });
 
-test('10번: 시수표를 한꺼번에 올리는 라우트가 없다', () => {
+test('10번(T-1204): 시수표 올리기 길이 있다 — 양식 · 미리보기 · 반영(기존 줄 고치기 길 PATCH 그대로)', () => {
   const s = src('server/routes/loads.js');
-  assert.doesNotMatch(s, /\/loads\/(import|upload|bulk)/); // 고칠 것: T-1204
   const verbs = [...s.matchAll(/r\.(get|post|patch|delete|put)\('([^']+)'/g)].map((m) => `${m[1]} ${m[2]}`);
-  assert.deepEqual(verbs, ['get /loads', 'get /loads/effective', 'post /loads', 'patch /loads/:id', 'delete /loads/:id']);
+  assert.deepEqual(verbs, ['get /loads', 'get /loads/effective', 'get /loads/template', 'post /loads/preview', 'post /loads/apply', 'post /loads', 'patch /loads/:id', 'delete /loads/:id']);
 });
 
 test('8번(T-1202): 점심 자리(lunchAfter)만 넣어도 생성 재료 L 이 채워지고 급식지도 제외·경고가 돈다', () => {

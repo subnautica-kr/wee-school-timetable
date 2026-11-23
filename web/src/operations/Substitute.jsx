@@ -59,12 +59,12 @@ export default function Substitute({ P, admin, onGo }) {
 
 function Candidates({ data, admin, onAssign, onGo }) {
   const [outside, setOutside] = useState('');
-  const why = data.excluded.filter((e) => e.code !== 'teaching' && e.code !== 'no-homeroom');
-  const noRoom = data.excluded.filter((e) => e.code === 'no-homeroom');
+  const why = data.excluded.filter((e) => e.code !== 'teaching');
+  const noRoom = data.candidates.filter((c) => c.warn?.code === 'no-homeroom');
   return (
     <Stack gap="xs">
       {noRoom.length > 0 && (
-        <Alert color="yellow" title={`담임 ${noRoom.length}명에 반이 안 붙어 있어 후보에서 빠졌습니다`}>
+        <Alert color="yellow" title={`담임 ${noRoom.length}명에 반이 안 붙어 있어 수업 중인지 모릅니다(후보 맨 아래에 있습니다)`}>
           <Text size="sm">{noRoom.map((e) => e.name).join(' · ')}</Text>
           {onGo && <Button size="compact-sm" variant="subtle" onClick={onGo}>붙이러 가기 → 학교 기본의 반 표</Button>}
         </Alert>
@@ -73,7 +73,7 @@ function Candidates({ data, admin, onAssign, onGo }) {
       {data.candidates.length > 0 && <Text size="xs" c="dimmed">위에 있는 분부터 권합니다. 배지는 그 선생님이 어떤 처지인지를 말합니다.</Text>}
       {data.candidates.map((c) => (
         <Group key={c.membership_id} justify="space-between" wrap="nowrap">
-          <Group gap="xs"><Badge color={GRADE_COLOR[c.grade]} title={SUB_GRADES[c.grade]?.hint}>{SUB_GRADES[c.grade]?.name ?? c.grade}</Badge><Text>{c.name}</Text><Text size="xs" c="dimmed">이번 학기 보결 {c.take_count ?? 0}회</Text>{c.taken && <Badge variant="outline" color="orange">같은 시간 맡음</Badge>}</Group>
+          <Group gap="xs"><Badge color={GRADE_COLOR[c.grade]} title={SUB_GRADES[c.grade]?.hint}>{SUB_GRADES[c.grade]?.name ?? c.grade}</Badge><Text>{c.name}</Text><Text size="xs" c="dimmed">이번 학기 보결 {c.take_count ?? 0}회</Text>{c.taken && <Badge variant="outline" color="orange">같은 시간 맡음</Badge>}{c.warn && <Badge variant="light" color="yellow">{c.warn.detail}</Badge>}</Group>
           {admin && <Button size="xs" variant="default" onClick={() => onAssign({ membership_id: c.membership_id })}>지정</Button>}
         </Group>
       ))}

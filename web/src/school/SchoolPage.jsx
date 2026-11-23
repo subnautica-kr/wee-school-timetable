@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Badge, Button, Group, NumberInput, Select, Stack, Switch, Table, Tabs, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Button, Group, MultiSelect, NumberInput, Select, Stack, Switch, Table, Tabs, Text, TextInput } from '@mantine/core';
 import { api } from '../api.js';
 import { buildTimes, rowsOf } from './periodTimes.js';
 
@@ -9,6 +9,7 @@ import Term from '../Term.jsx';
 import { SCHOOL_TAB_FEATURE, visibleTabs } from '../features.js';
 import { MenuIntro } from '../grid/Guide.jsx';
 import { useConfirm } from '../Confirm.jsx';
+import LoadUpload from './LoadUpload.jsx';
 
 function useLoad(path) {
   const [data, setData] = useState(null);
@@ -303,37 +304,77 @@ function Loads({ P, admin }) {
   const [subjects] = useLoad(`${P}/subjects`);
   const [classes] = useLoad(`${P}/classrooms`);
   const [row, setRow] = useState({});
+  const [ask, box] = useConfirm();
+  const [fail, setFail] = useState('');
   const opt = (a, f) => (a || []).map((x) => ({ value: String(f.v(x)), label: f.l(x) }));
-  const add = () => api('POST', `${P}/loads`, { membership_id: row.m ? Number(row.m) : null, subject_id: row.s ? Number(row.s) : null, classroom_id: row.c ? Number(row.c) : null, weekly_hours: row.h || 0, sync_progress: !!row.p, block: row.b ? 2 : 1 }).then(() => { setRow({}); reload(); });
   const nm = (arr, k, id) => (arr || []).find((x) => String(x[k]) === String(id));
+  const guard = (fn) => () => { setFail(''); return Promise.resolve().then(fn).then(reload).catch((e) => setFail(e.message)); };
+  // 반 고르기: 「○학년 전체」(g○)와 낱개 반을 섞어 고른다. 겹치면 한 번만 센다. 비우면 모든 반(반 지정 없음).
+  const grades = [...new Set((classes || []).map((c) => c.grade))].sort((a, b) => a - b);
+  const classData = [
+    { group: '학년 전체', items: grades.map((g) => ({ value: `g${g}`, label: `${g}학년 전체` })) },
+    ...grades.map((g) => ({ group: `${g}학년`, items: classes.filter((c) => c.grade === g).map((c) => ({ value: String(c.id), label: `${c.grade}-${c.class_no}` })) })),
+  ];
+  const pickedIds = (vals) => [...new Set((vals || []).flatMap((v) => (v.startsWith('g') ? classes.filter((c) => c.grade === Number(v.slice(1))).map((c) => c.id) : [Number(v)])))];
+  const add = guard(async () => {
+    const ids = pickedIds(row.c);
+    const base = { membership_id: row.m ? Number(row.m) : null, subject_id: row.s ? Number(row.s) : null, weekly_hours: row.h || 0, sync_progress: !!row.p, block: row.b ? 2 : 1 };
+    for (const c of ids.length ? ids : [null]) await api('POST', `${P}/loads`, { ...base, classroom_id: c });
+    setRow({});
+  });
+  const patch = (l, body) => guard(() => api('PATCH', `${P}/loads/${l.id}`, body))();
+  const remove = async (l) => {
+    const who = nm(people, 'membership_id', l.membership_id)?.name ?? '교사 비어 있음';
+    const c = nm(classes, 'id', l.classroom_id);
+    if (!(await ask(`이 줄을 지울까요?\n${who} · ${nm(subjects, 'id', l.subject_id)?.name ?? '교과 비어 있음'} · ${c ? `${c.grade}-${c.class_no}` : '모든 반'} · ${l.weekly_hours}시수`, { yes: '지우기' }))) return;
+    guard(() => api('DELETE', `${P}/loads/${l.id}`))();
+  };
   return (
     <Stack>
-      <Err e={err} />
+      {box}
+      <Err e={err || fail} />
       {(d?.alerts || []).map((a, i) => <MissingBox key={i} a={a} />)}
+      {admin && <LoadUpload P={P} onDone={reload} />}
       <Table><Table.Tbody>
         {(d?.lines || []).map((l) => (
           <Table.Tr key={l.id} bg={l.incomplete ? 'yellow.0' : undefined}>
-            <Table.Td>{nm(people, 'membership_id', l.membership_id)?.name ?? '(교사 비어 있음)'}</Table.Td>
-            <Table.Td>{nm(subjects, 'id', l.subject_id)?.name ?? '(교과 비어 있음)'}</Table.Td>
+            {admin ? (
+              <>
+                <Table.Td><Select aria-label="교사" placeholder="(교사 비어 있음)" clearable searchable data={opt(people, { v: (x) => x.membership_id, l: (x) => x.name })} value={l.membership_id ? String(l.membership_id) : null} onChange={(v) => patch(l, { membership_id: v ? Number(v) : null })} w={140} /></Table.Td>
+                <Table.Td><Select aria-label="교과" placeholder="(교과 비어 있음)" clearable data={opt(subjects, { v: (x) => x.id, l: (x) => x.name })} value={l.subject_id ? String(l.subject_id) : null} onChange={(v) => patch(l, { subject_id: v ? Number(v) : null })} w={130} /></Table.Td>
+              </>
+            ) : (
+              <>
+                <Table.Td>{nm(people, 'membership_id', l.membership_id)?.name ?? '(교사 비어 있음)'}</Table.Td>
+                <Table.Td>{nm(subjects, 'id', l.subject_id)?.name ?? '(교과 비어 있음)'}</Table.Td>
+              </>
+            )}
             <Table.Td>{l.classroom_id ? (() => { const c = nm(classes, 'id', l.classroom_id); return c ? `${c.grade}-${c.class_no}` : ''; })() : '모든 반(반 지정 없음)'}</Table.Td>
-            <Table.Td>{l.weekly_hours}시수{l.sync_progress ? ' · 진도 맞춤' : ''}{l.block === 2 ? ' · 2시수 연강' : ''}
-              {admin && <Switch size="xs" mt={4} label="연강" checked={l.block === 2} onChange={(e) => api('PATCH', `${P}/loads/${l.id}`, { block: e.currentTarget.checked ? 2 : 1 }).then(reload)} />}</Table.Td>
-            <Table.Td>{admin && <Button size="xs" variant="subtle" color="red" onClick={() => api('DELETE', `${P}/loads/${l.id}`).then(reload)}>지우기</Button>}</Table.Td>
+            <Table.Td>
+              {admin ? (
+                <Group gap="xs" wrap="nowrap">
+                  <NumberInput aria-label="시수" min={0} allowDecimal={false} key={`${l.id}:${l.weekly_hours}`} defaultValue={l.weekly_hours} onBlur={(e) => { const v = Number(e.currentTarget.value); if (e.currentTarget.value !== '' && v !== l.weekly_hours) patch(l, { weekly_hours: v }); }} w={70} suffix="시수" />
+                  <Switch size="xs" label="연강" checked={l.block === 2} onChange={(e) => patch(l, { block: e.currentTarget.checked ? 2 : 1 })} />
+                  {l.sync_progress && <Text size="xs" c="dimmed">진도 맞춤</Text>}
+                </Group>
+              ) : <>{l.weekly_hours}시수{l.sync_progress ? ' · 진도 맞춤' : ''}{l.block === 2 ? ' · 2시수 연강' : ''}</>}
+            </Table.Td>
+            <Table.Td>{admin && <Button size="xs" variant="subtle" color="red" onClick={() => remove(l)}>지우기</Button>}</Table.Td>
           </Table.Tr>
         ))}
       </Table.Tbody></Table>
       {admin && (
         <Group align="end">
-          <Select placeholder="교사" clearable data={opt(people, { v: (x) => x.membership_id, l: (x) => x.name })} value={row.m ?? null} onChange={(v) => setRow({ ...row, m: v })} w={130} />
+          <Select placeholder="교사" clearable searchable data={opt(people, { v: (x) => x.membership_id, l: (x) => x.name })} value={row.m ?? null} onChange={(v) => setRow({ ...row, m: v })} w={130} />
           <Select placeholder="교과" clearable data={opt(subjects, { v: (x) => x.id, l: (x) => x.name })} value={row.s ?? null} onChange={(v) => setRow({ ...row, s: v })} w={130} />
-          <Select placeholder="모든 반(비우면)" clearable data={opt(classes, { v: (x) => x.id, l: (x) => `${x.grade}-${x.class_no}` })} value={row.c ?? null} onChange={(v) => setRow({ ...row, c: v })} w={110} />
+          <MultiSelect placeholder="모든 반(비우면)" description="반 여러 개나 「○학년 전체」를 골라 한 번에 줄을 만듭니다" clearable searchable data={classData} value={row.c ?? []} onChange={(v) => setRow({ ...row, c: v })} w={260} />
           <NumberInput placeholder="시수" description={`기관 기준 주 ${org.limits.loadPerWeek}`} min={0} value={row.h ?? ''} onChange={(v) => setRow({ ...row, h: v })} w={80} />
           <Switch label="진도 맞춤" checked={!!row.p} onChange={(e) => setRow({ ...row, p: e.currentTarget.checked })} />
           <Switch label="2시수 연강" checked={!!row.b} onChange={(e) => setRow({ ...row, b: e.currentTarget.checked })} />
           <Button onClick={add}>줄 추가</Button>
         </Group>
       )}
-      <Text size="xs" c="dimmed">비어 있는 칸이 있어도 저장됩니다. 노랑 줄은 아직 덜 채운 줄입니다.</Text>
+      <Text size="xs" c="dimmed">비어 있는 칸이 있어도 저장됩니다. 노랑 줄은 아직 덜 채운 줄입니다. 교사·교과·시수는 줄에서 바로 고칠 수 있습니다.</Text>
     </Stack>
   );
 }

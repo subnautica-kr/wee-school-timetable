@@ -29,7 +29,7 @@ export async function setupSchoolEnv(t, label = 'sch') {
   const blocked = [];
   let cookie = ''; let csrf = '';
   const call = async (method, path, body, { expect } = {}) => {
-    const res = await fetch(base + path, { method, headers: { 'content-type': 'application/json', cookie, 'x-csrf-token': csrf }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const res = await fetch(base + path, { method, headers: { 'content-type': Buffer.isBuffer(body) ? 'application/octet-stream' : 'application/json', cookie, 'x-csrf-token': csrf }, body: body === undefined ? undefined : Buffer.isBuffer(body) ? body : JSON.stringify(body) });
     const sc = res.headers.getSetCookie?.() ?? [];
     if (sc.length) cookie = sc.map((c) => c.split(';')[0]).join('; ');
     const json = await res.json().catch(() => null);
