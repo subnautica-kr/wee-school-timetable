@@ -38,7 +38,7 @@ export function orgRouter(pool) {
   r.get('/classrooms', requireOrgAction('timetable.view'), async (req, res, next) => {
     try {
       const { rows } = await pool.query(
-        `SELECT id, term_id, grade, class_no, student_count FROM classroom WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL ORDER BY grade, class_no`,
+        `SELECT id, term_id, grade, class_no, student_count, homeroom_membership_id FROM classroom WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL ORDER BY grade, class_no`,
         [req.orgId, await scopeTermId(pool, req)],
       );
       res.json(rows);

@@ -72,7 +72,10 @@ export function loadsRouter(pool) {
       [req.orgId],
     )).rows;
     const levels = await getRuleLevels(pool, req.orgId);
-    const alerts = applyLevels(levels, missingTeachers(teachers, lines));
+    // 빠진 교사는 사람마다 하나가 아니라 한 상자 — detail 에 사람 수와 이름 목록
+    const miss = missingTeachers(teachers, lines);
+    const grouped = miss.length ? [{ rule: 'load_missing_teacher', detail: { count: miss.length, people: miss.map((x) => x.detail) } }] : [];
+    const alerts = applyLevels(levels, grouped);
     return { term: t, lines: lines.map((l) => ({ ...l, incomplete: isIncomplete(l) })), alerts };
   }
 

@@ -157,6 +157,52 @@ function Semester({ P, admin, term, classes, onDone }) {
   );
 }
 
+// 반 표 — 반마다 담임 고르기(선택 항목). 담당 구분 「담임」인 분을 위에, 나머지 분도 아래에 둔다(작은 학교는 교감·전담이 담임을 겸한다).
+// 한 분이 두 반 이상이어도 막지 않고 노란 알림만. 붙일 때 그 반 시수표에 교사 빈 줄이 있으면 담임으로 채울지 묻는다.
+function ClassTable({ P, admin, classes, reload, setError }) {
+  const [people] = useLoad(`${P}/specialists`);
+  const [ask, box] = useConfirm();
+  const list = classes || [];
+  const nameOf = (mid) => (people || []).find((x) => x.membership_id === mid)?.name;
+  const data = [
+    { group: '담임', items: (people || []).filter((x) => x.duty === '담임').map((x) => ({ value: String(x.membership_id), label: x.name })) },
+    { group: '그 밖의 분', items: (people || []).filter((x) => x.duty !== '담임').map((x) => ({ value: String(x.membership_id), label: `${x.name}${x.duty ? ` (${x.duty})` : ''}` })) },
+  ].filter((g) => g.items.length);
+  const byHome = {};
+  for (const c of list) if (c.homeroom_membership_id) (byHome[c.homeroom_membership_id] ||= []).push(`${c.grade}-${c.class_no}`);
+  const dup = Object.entries(byHome).filter(([, v]) => v.length > 1);
+  const pick = async (c, v) => {
+    setError('');
+    try {
+      const mid = v ? Number(v) : null;
+      await api('PATCH', `${P}/classrooms/${c.id}`, { homeroom_membership_id: mid });
+      await reload();
+      if (!mid) return;
+      const blank = ((await api('GET', `${P}/loads`)).lines || []).filter((l) => l.classroom_id === c.id && !l.membership_id);
+      if (blank.length && (await ask(`${c.grade}-${c.class_no}반 시수표에 교사가 빈 줄이 ${blank.length}개 있습니다.
+이 반의 교사 빈 줄 ${blank.length}개를 ${nameOf(mid) ?? '담임'} 선생님으로 채울까요?`, { yes: '채우기', no: '그대로 두기' }))) {
+        for (const l of blank) await api('PATCH', `${P}/loads/${l.id}`, { membership_id: mid });
+      }
+    } catch (e) { setError(e.message); }
+  };
+  return (
+    <Stack gap="xs">
+      {box}
+      {dup.map(([mid, v]) => <Alert key={mid} color="yellow">{nameOf(Number(mid)) ?? '한 분'} 선생님이 {v.join('·')} 두 반 이상의 담임입니다(막지는 않습니다).</Alert>)}
+      {list.length === 0 ? <Text size="sm">아직 없음</Text> : (
+        <Table w="auto"><Table.Tbody>
+          {list.map((c) => (
+            <Table.Tr key={c.id}>
+              <Table.Td>{c.grade}-{c.class_no}</Table.Td>
+              <Table.Td><Select aria-label={`${c.grade}-${c.class_no} 담임`} placeholder="담임 없음" clearable searchable disabled={!admin} data={data} value={c.homeroom_membership_id ? String(c.homeroom_membership_id) : null} onChange={(v) => pick(c, v)} w={200} /></Table.Td>
+            </Table.Tr>
+          ))}
+        </Table.Tbody></Table>
+      )}
+    </Stack>
+  );
+}
+
 function Basics({ P, admin }) {
   const org = useOrgConfig(P); // 기관 설정: 학기 시작 달·상한(넘으면 경고만 — 입력은 막지 않음)
   const [term, reloadTerm] = useLoad(`${P}/term`);
@@ -179,7 +225,7 @@ function Basics({ P, admin }) {
       {term && <Text size="sm" c="dimmed">지금 {term.year}년 {term.semester}학기 · 학기 시작 달 {org.semesterStarts.join('·')}월(기관 설정)</Text>}
       <Semester P={P} admin={admin} term={term} classes={classes} onDone={() => { reloadTerm(); reloadC(); }} />
       <Text fw={600}>반</Text>
-      <Text size="sm">{(classes || []).map((c) => `${c.grade}-${c.class_no}`).join(' · ') || '아직 없음'}</Text>
+      <ClassTable P={P} admin={admin} classes={classes} reload={reloadC} setError={setError} />
       {admin && (
         <Group>
           <NumberInput label="학년" description={`기관 기준 ${org.limits.grades}`} min={1} value={grade} onChange={setGrade} w={80} />
@@ -237,6 +283,19 @@ function Specialists({ P, admin }) {
   );
 }
 
+// 알림 한 상자 — 「시수표에 빠진 교사 ○명」 + 펼치면 이름 목록. 사람 목록이 없는 알림은 지금처럼 한 줄.
+function MissingBox({ a }) {
+  const [open, setOpen] = useState(false);
+  const people = a.detail?.people;
+  if (!people) return <Alert color={a.color}>{a.label}: {a.detail?.name}</Alert>;
+  return (
+    <Alert color={a.color} title={`${a.label} ${a.detail.count}명`}>
+      <Button size="compact-xs" variant="subtle" onClick={() => setOpen(!open)}>{open ? '접기' : '이름 펼치기'}</Button>
+      {open && <Text size="sm">{people.map((x) => x.name).join(' · ')}</Text>}
+    </Alert>
+  );
+}
+
 function Loads({ P, admin }) {
   const org = useOrgConfig(P);
   const [d, reload, err] = useLoad(`${P}/loads`);
@@ -250,7 +309,7 @@ function Loads({ P, admin }) {
   return (
     <Stack>
       <Err e={err} />
-      {(d?.alerts || []).map((a, i) => <Alert key={i} color={a.color}>{a.label}: {a.detail?.name}</Alert>)}
+      {(d?.alerts || []).map((a, i) => <MissingBox key={i} a={a} />)}
       <Table><Table.Tbody>
         {(d?.lines || []).map((l) => (
           <Table.Tr key={l.id} bg={l.incomplete ? 'yellow.0' : undefined}>
