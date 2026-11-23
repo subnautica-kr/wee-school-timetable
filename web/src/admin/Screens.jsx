@@ -76,14 +76,15 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
   const on = (v) => items.some((i) => i.v === v);
   const H = Object.fromEntries(items.map((i) => [i.v, i.hint]));
   const tab = on(want) ? want : 'grid'; // 숨긴 탭이면 시간표로
-  if (!loaded) return null; // 설정을 받기 전엔 메뉴를 그리지 않는다(꺼진 탭이 잠깐 보였다 사라지는 깜빡임)
-  const bar = items;
-  const more = phone ? items.filter((i) => !PHONE_MAIN.includes(i.v)) : [];
+  // 훅은 아래 early return 보다 먼저 — 뒤에 두면 loaded 가 바뀔 때 훅 수가 달라져 React #310 으로 빈 화면(T-1204v)
   const listRef = useRef(null);
   useEffect(() => { // 지금 탭이 가로 스크롤 밖에 있으면 보이게
     if (!phone) return;
     listRef.current?.querySelector('[data-active]')?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
   }, [phone, tab, loaded]);
+  if (!loaded) return null; // 설정을 받기 전엔 메뉴를 그리지 않는다(꺼진 탭이 잠깐 보였다 사라지는 깜빡임)
+  const bar = items;
+  const more = phone ? items.filter((i) => !PHONE_MAIN.includes(i.v)) : [];
   return (
     <IntroCtx.Provider value={{ user, features }}>
     {admin && <OrderHint features={features} />}
