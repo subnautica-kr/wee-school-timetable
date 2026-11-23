@@ -33,8 +33,8 @@ test('내 시간표 둘째 표시는 서버 second === true 일 때만', () => {
 });
 
 test('생성 알림 second_block 문구 — 모르는 코드·없음은 빈 목록', () => {
-  assert.equal(genNoteTexts({ alerts: [{ code: 'second_block' }, 'second_block'] }).length, 1);
-  assert.match(genNoteTexts({ notes: [{ rule: 'second_block' }] })[0], /연강 묶음째/);
-  assert.deepEqual(genNoteTexts({ alerts: [{ code: 'x' }] }), []);
+  assert.equal(genNoteTexts({ warnings: [{ rule: 'second_block' }, { rule: 'second_block' }] }).length, 1);
+  assert.match(genNoteTexts({ warnings: [{ rule: 'second_block' }] })[0], /연강 묶음째/);
+  assert.deepEqual(genNoteTexts({ warnings: [{ rule: 'x' }], alerts: [{ code: 'second_block' }] }), []);
   assert.deepEqual(genNoteTexts(undefined), []);
 });

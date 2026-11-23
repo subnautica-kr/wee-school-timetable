@@ -89,7 +89,7 @@ function Generator({ P, input, onSaved }) {
       if (m.type === 'error') { setRun(null); setMsg({ color: 'red', text: m.message }); }
       if (m.type === 'done') {
         const out = { at: new Date().toISOString(), skipped: m.skipped, ms: m.ms, candidates: [...prev, ...m.candidates].sort((a, b) => a.hard - b.hard || a.rr - b.rr || a.soft - b.soft).map((c, rank) => ({ ...c, rank }))
-          .map((c) => ({ rank: c.rank, hard: c.hard, rr: c.rr, soft: c.soft, cells: c.cells, unplaced: c.unplaced, alerts: c.alerts, notes: c.notes })) };
+          .map((c) => ({ rank: c.rank, hard: c.hard, rr: c.rr, soft: c.soft, cells: c.cells, unplaced: c.unplaced, warnings: c.warnings })) };
         setRes(out); setRank(0); setRun(null); setSaved(null); dropPartial(pkey);
         try { localStorage.setItem(storeKey(P, input.term?.id), JSON.stringify(out)); } catch { /* 저장 공간이 모자라면 이번 화면에만 둔다 */ }
         w.terminate();
