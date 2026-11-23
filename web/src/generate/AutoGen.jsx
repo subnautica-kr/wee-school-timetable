@@ -8,6 +8,8 @@ import { overHours, periodsMax, periodsOn } from '../../../shared/periods.js';
 import { DEFAULTS, useOrgConfig } from '../orgConfig.js';
 import Term from '../Term.jsx';
 import { featureOn } from '../features.js';
+import { genNoteTexts } from './genNotes.js';
+import { teacherNames } from '../grid/secondTeacher.js';
 import { useConfirm } from '../Confirm.jsx';
 
 const K = 8; // 후보 수 기본값(화면 입력칸이 덮고 localStorage 에 기억)
@@ -87,7 +89,7 @@ function Generator({ P, input, onSaved }) {
       if (m.type === 'error') { setRun(null); setMsg({ color: 'red', text: m.message }); }
       if (m.type === 'done') {
         const out = { at: new Date().toISOString(), skipped: m.skipped, ms: m.ms, candidates: [...prev, ...m.candidates].sort((a, b) => a.hard - b.hard || a.rr - b.rr || a.soft - b.soft).map((c, rank) => ({ ...c, rank }))
-          .map((c) => ({ rank: c.rank, hard: c.hard, rr: c.rr, soft: c.soft, cells: c.cells, unplaced: c.unplaced })) };
+          .map((c) => ({ rank: c.rank, hard: c.hard, rr: c.rr, soft: c.soft, cells: c.cells, unplaced: c.unplaced, alerts: c.alerts, notes: c.notes })) };
         setRes(out); setRank(0); setRun(null); setSaved(null); dropPartial(pkey);
         try { localStorage.setItem(storeKey(P, input.term?.id), JSON.stringify(out)); } catch { /* 저장 공간이 모자라면 이번 화면에만 둔다 */ }
         w.terminate();
@@ -142,6 +144,7 @@ function Generator({ P, input, onSaved }) {
             <Text size="xs" c="dimmed">{(res.ms / 1000).toFixed(1)}초 · {new Date(res.at).toLocaleString('ko-KR')}</Text>
           </Group>
           {cand.unplaced?.length > 0 && <Text size="sm" c="red">못 놓은 수업 {cand.unplaced.length}개 — 저장한 뒤 수정 모드에서 손으로 넣으세요.</Text>}
+          {genNoteTexts(cand).map((t) => <Text key={t} size="sm" c="yellow.8">{t}</Text>)}
           {res.skipped > 0 && <Text size="sm" c="yellow.8">시수표에서 덜 채운 줄 {res.skipped}개는 빼고 만들었습니다.</Text>}
           <Group align="end">
             <TextInput label="시안 이름" placeholder="예: 2학기 자동 1" value={name} onChange={(e) => setName(e.currentTarget.value)} />
@@ -284,7 +287,7 @@ export function ModeGrid({ input, cells, levels = input.levels || {}, onSwap }) 
                       {c ? (
                         <>
                           <Text size="sm" fw={600}>{subj(c.subject_id) || '·'}</Text>
-                          <Text size="xs" c="dimmed">{nm(input.teachers, c.membership_id)?.name || ''}{c.special_room_id ? ` @${nm(input.rooms, c.special_room_id)?.name || ''}` : ''}</Text>
+                          <Text size="xs" c="dimmed">{teacherNames(c, input.teachers).join(' · ')}{c.special_room_id ? ` @${nm(input.rooms, c.special_room_id)?.name || ''}` : ''}</Text>
                           {bad && <Text size="xs" c="red" fw={700}>{bad.some((b) => b.rule === 'teacher_overlap') ? '교사 겹침' : '특별실 겹침'}</Text>}
                           {p > classInfo[cls.id].PW[w] && <Text size="xs" c="orange" fw={700}>교시 수 밖</Text>}
                         </>
