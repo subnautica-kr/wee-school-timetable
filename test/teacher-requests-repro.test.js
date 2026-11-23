@@ -35,13 +35,13 @@ test('(나) 급식지도 경고는 lunch 와 lunchAfter 둘 다 있어야 뜬다
     cells: [{ classroom_id: 10, weekday: 1, period: 4, subject_id: 5, membership_id: 2 }],
   })).candidates.find((c) => c.membership_id === 1);
   assert.equal(dutyMembers({ periods: 5, lunch: '12:00', lunchAfter: 4 })?.warn?.code, 'lunch');
-  assert.equal(dutyMembers({ periods: 5, lunchAfter: 4 })?.warn, undefined); // 고칠 것: T-1202 (lunchAfter 만 있어도 알려야)
-  assert.equal(dutyMembers({ periods: 5, lunch: '12:00' })?.warn, undefined); // 점심 시각만(화면으로 넣은 꼴) — 경고 없음. 고칠 것: T-1202
+  assert.equal(dutyMembers({ periods: 5, lunchAfter: 4 })?.warn?.code, 'lunch'); // T-1202: lunchAfter 만 있어도 알린다
+  assert.equal(dutyMembers({ periods: 5, lunch: '12:00' })?.warn, undefined); // 점심 시각만 있고 자리가 없으면 경고 없음(설계: 직접 넣기 하나만)
 });
 
 test('8번: 점심 시각만 넣은 학년은 생성 재료의 점심 자리(L)가 0 이다', () => {
   const p = prepare({ classrooms: [{ id: 1, grade: 1, class_no: 1 }], lines: [], periods: { grades: { 1: { periods: 5, lunch: '12:00' } } }, pins: [], subjects: [], teachers: [], rooms: [] });
-  assert.equal(p.classes[0].L, 0); // 고칠 것: T-1202 (lunch 시각에서 점심 자리를 뽑아야)
+  assert.equal(p.classes[0].L, 0); // 설계: 직접 넣기 하나만 — 시각에서 계산하지 않는다
   const s = src('web/src/gen/core.js');
   assert.match(s, /L: g\.lunchAfter \|\| 0/);
 });
@@ -81,4 +81,26 @@ test('10번: 시수표를 한꺼번에 올리는 라우트가 없다', () => {
   assert.doesNotMatch(s, /\/loads\/(import|upload|bulk)/); // 고칠 것: T-1204
   const verbs = [...s.matchAll(/r\.(get|post|patch|delete|put)\('([^']+)'/g)].map((m) => `${m[1]} ${m[2]}`);
   assert.deepEqual(verbs, ['get /loads', 'get /loads/effective', 'post /loads', 'patch /loads/:id', 'delete /loads/:id']);
+});
+
+test('8번(T-1202): 점심 자리(lunchAfter)만 넣어도 생성 재료 L 이 채워지고 급식지도 제외·경고가 돈다', () => {
+  const p = prepare({ classrooms: [{ id: 1, grade: 1, class_no: 1 }], lines: [], periods: { grades: { 1: { periods: 5, lunchAfter: 4 } } }, pins: [], subjects: [], teachers: [], rooms: [] });
+  assert.equal(p.classes[0].L, 4);
+  const members = [{ id: 1, name: '가', duty: '담임', homeroom: { id: 10, grade: 1 } }, { id: 2, name: '나', duty: '전담', homeroom: null }];
+  const cells = [{ classroom_id: 10, weekday: 1, period: 4, subject_id: 5, membership_id: 2 }];
+  const periodConfig = { grades: { 1: { periods: 5, lunchAfter: 4 } } };
+  const ex = rankCandidates(baseCtx({ period: 4, periodConfig, members, cells, config: { substitute: { lunchDuty: 'exclude' } } }));
+  assert.ok(ex.excluded.some((x) => x.code === 'lunch'), JSON.stringify(ex.excluded));
+  // 점심 자리를 안 넣은 학교는 결과 불변
+  const none = rankCandidates(baseCtx({ period: 4, members, cells, config: { substitute: { lunchDuty: 'exclude' } } }));
+  assert.ok(!none.excluded.some((x) => x.code === 'lunch'));
+});
+
+test('8번(T-1202): 학교 화면에 점심 자리 칸 · 접힌 교시 시각 · 생성 화면 알림이 있다', () => {
+  const sp = src('web/src/school/SchoolPage.jsx');
+  assert.match(sp, /점심은 몇 교시 뒤/);
+  assert.match(sp, /setG\(g, \{ lunchAfter: v \}\)/);
+  assert.match(sp, /교시 시각 넣기/);
+  assert.match(src('web/src/generate/AutoGen.jsx'), /점심 자리가 비어 점심 규칙을 건너뜁니다/);
+  assert.match(src('server/routes/school.js'), /lunchAfter: z\.number\(\)\.int\(\)\.min\(0\)/);
 });

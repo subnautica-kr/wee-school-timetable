@@ -40,8 +40,8 @@ export function rankCandidates(ctx) {
     if (absentIds.has(m.id)) { out(m, 'absent'); continue; }
     if (pins.some((p) => p.target_id === m.id && p.weekday === weekday && p.period === period)) { out(m, 'fixed'); continue; }
     const g = m.homeroom ? periodConfig?.grades?.[String(m.homeroom.grade)] : null;
-    if (g && g.lunch && g.lunchAfter && g.lunchAfter === period && sub.lunchDuty === 'exclude') { out(m, 'lunch'); continue; }
-    const lunchWarn = g && g.lunch && g.lunchAfter && g.lunchAfter === period ? { code: 'lunch', detail: REASONS.lunch } : null;
+    if (g && g.lunchAfter && g.lunchAfter === period && sub.lunchDuty === 'exclude') { out(m, 'lunch'); continue; }
+    const lunchWarn = g && g.lunchAfter && g.lunchAfter === period ? { code: 'lunch', detail: REASONS.lunch } : null;
     const add = (grade) => candidates.push({ membership_id: m.id, name: m.name, grade, taken, ...(lunchWarn ? { warn: lunchWarn } : {}) });
     if (m.duty === '담임' && m.homeroom) {
       const cell = at(m.homeroom.id);

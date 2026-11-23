@@ -57,6 +57,16 @@ function TimesTable({ n, times, disabled, onSave }) {
     </Stack>
   );
 }
+// 학년별 교시 시각 — 접어 둔다. 안 펴면 학교 공통 시각을 쓴다(지금과 같다).
+function GradeTimes({ label, n, times, disabled, onSave }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Stack gap={4}>
+      <Button size="compact-xs" variant="subtle" aria-label={`${label} 교시 시각 넣기`} onClick={() => setOpen(!open)}>{open ? '교시 시각 접기' : `교시 시각 넣기${times?.length ? ' (넣음)' : ''}`}</Button>
+      {open && <TimesTable n={n} times={times} disabled={disabled} onSave={onSave} />}
+    </Stack>
+  );
+}
 const Err = ({ e }) => (e ? <Alert color="red">{e}</Alert> : null);
 
 // 교과 — 기본 14 는 프리셋일 뿐. 기관이 추가·이름·줄임말 고치기·숨김(되살리기)·프리셋 다시 불러오기(없는 것만)
@@ -184,6 +194,8 @@ function Basics({ P, admin }) {
             <Table.Td>{g}학년</Table.Td>
             <Table.Td><NumberInput aria-label={`${g}학년 교시 수`} disabled={!admin} min={1} description={`기관 기준 ${org.limits.periods}`} value={grades[g]?.periods ?? ''} onChange={(v) => v && run(() => setG(g, { periods: v }))()} w={80} suffix="교시" /></Table.Td>
             <Table.Td><LunchInput key={`${g}:${grades[g]?.lunch ?? ''}`} label={`${g}학년 점심 시각`} disabled={!admin} value={grades[g]?.lunch ?? ''} onSave={(v) => run(() => setG(g, { lunch: v }))()} /></Table.Td>
+            <Table.Td><NumberInput aria-label={`${g}학년 점심은 몇 교시 뒤`} disabled={!admin} min={0} max={org.limits.periods} allowDecimal={false} placeholder="점심" key={`${g}:la:${grades[g]?.lunchAfter ?? ''}`} defaultValue={grades[g]?.lunchAfter ?? ''} onBlur={(e) => { const t = e.currentTarget.value.trim(); const v = t === '' ? undefined : Number(t); if (v !== grades[g]?.lunchAfter) run(() => setG(g, { lunchAfter: v }))(); }} w={110} suffix="교시 뒤" /></Table.Td>
+            <Table.Td><GradeTimes label={`${g}학년`} n={grades[g]?.periods || 5} times={grades[g]?.times} disabled={!admin} onSave={(t) => run(() => setG(g, { times: t }))()} /></Table.Td>
           </Table.Tr>
         ))}
       </Table.Tbody></Table>
