@@ -8,10 +8,14 @@ import { setupSchoolEnv, HAS_DB } from './fixtures/school-env.js';
 
 const ctx = (members) => ({ weekday: 1, period: 3, periodConfig: { grades: { 1: { periods: 5 } } }, cells: [], members, absentIds: new Set(), pins: [], takenIds: new Set() });
 
-test('보결 후보: 반이 안 붙은 담임은 「수업 중」이 아니라 no-homeroom 으로 빠진다', () => {
+test('보결 후보: 반이 안 붙은 담임은 후보로 남고 D 등급에 경고 no-homeroom(T-1204 보정)', () => {
   const r = rankCandidates(ctx([{ id: 1, name: '가', duty: '담임', homeroom: null }, { id: 2, name: '나', duty: '전담', homeroom: null }]));
-  assert.deepEqual(r.excluded.map((x) => [x.name, x.code, x.reason]), [['가', 'no-homeroom', '반이 안 붙은 담임']]);
-  assert.equal(r.candidates.length, 1); // 전담은 그대로 후보
+  assert.deepEqual(r.excluded, []);
+  assert.deepEqual(r.candidates.map((x) => [x.name, x.grade, x.warn?.code]), [['나', 'D', undefined], ['가', 'D', 'no-homeroom']]); // 경고 달린 쪽이 뒤
+  assert.match(r.candidates[1].warn.detail, /수업 중인지 모름/);
+  // 담임을 한 번도 안 붙인 작은 학교: 담임 전원이 후보에 남는다
+  const small = rankCandidates(ctx([{ id: 1, name: '가', duty: '담임', homeroom: null }, { id: 2, name: '나', duty: '담임', homeroom: null }]));
+  assert.equal(small.candidates.length, 2);
 });
 
 test('담임 붙이기: PATCH 로 붙이고 비우기 · 한 사람이 두 반이어도 막지 않음 · 빈 줄은 PATCH /loads 로 채움', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {
