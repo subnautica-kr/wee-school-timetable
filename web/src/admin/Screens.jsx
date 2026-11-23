@@ -141,6 +141,9 @@ export default function Screens({ user, onLogout, onUser }) {
   const [jump, setJump] = useState(null); // {v, n} — 도움말·따라 하기가 탭을 옮기라고 시킨다
   const goTab = (v) => setJump({ v, n: Date.now() });
   const [rev, setRev] = useState(0); // 「안내 다시 보기」 — 메뉴 화면을 새로 그려 카드를 다시 띄운다
+  const [sysSeen, setSysSeen] = useState(readSeenVersion); // 시스템 관리자 「내 정보」 의 새 기능 점
+  const sysNew = hasNewVersion(sysSeen, __APP_VERSION__);
+  const sysMarkSeen = () => { writeSeenVersion(__APP_VERSION__); setSysSeen(__APP_VERSION__); };
   useEffect(() => {
     if (!user.mustChange) api('GET', '/auth/memberships').then((r) => setMems(r.items)).catch(() => setMems([]));
   }, [user.mustChange, user.orgId]);
@@ -159,11 +162,11 @@ export default function Screens({ user, onLogout, onUser }) {
         <Tabs.List mb="md" mr={phone ? 0 : 'md'} className={phone ? 'app-tabs-scroll' : undefined}>
           <Tabs.Tab value="orgs">기관 관리</Tabs.Tab>
           <Tabs.Tab value="audit">기록</Tabs.Tab>
-          <Tabs.Tab value="me">내 정보</Tabs.Tab>
+          <Tabs.Tab value="me">내 정보{sysNew && <span data-testid="new-dot" aria-label="새 기능이 있어요" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--mantine-color-red-6)', marginLeft: 6 }} />}</Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="orgs"><AdminOrgs /></Tabs.Panel>
         <Tabs.Panel value="audit"><AuditLog /></Tabs.Panel>
-        <Tabs.Panel value="me"><ChangePassword onDone={onUser} /></Tabs.Panel>
+        <Tabs.Panel value="me"><ChangePassword onDone={onUser} /><VersionHistory isNew={sysNew} onSeen={sysMarkSeen} /></Tabs.Panel>
       </Tabs>
     );
   } else {
