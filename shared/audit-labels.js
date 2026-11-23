@@ -3,7 +3,7 @@ import { SUB_GRADES } from './sub-grades.js';
 export const ACTION_LABEL = {
   'admin.reset-password': '비밀번호 초기화(시스템 관리자)', 'attendance.close': '근태 마감', 'attendance.delete': '근태 삭제', 'attendance.edit': '근태 고침', 'attendance.reopen': '근태 마감 풂', 'attendance.save': '근태 저장',
   'booking.cancel': '예약 취소', 'booking.create': '예약',
-  'org.concurrent-add': '겸임 추가', 'org.create': '기관 만듦', 'org.first-admin': '첫 관리자 만듦', 'org.switch': '기관 전환', 'org.update': '기관 고침', 'password.change': '비밀번호 바꿈',
+  'org.backup': '학교 자료 내려받기', 'org.concurrent-add': '겸임 추가', 'org.create': '기관 만듦', 'org.first-admin': '첫 관리자 만듦', 'org.switch': '기관 전환', 'org.update': '기관 고침', 'password.change': '비밀번호 바꿈',
   'room_lock.create': '특별실 잠금', 'room_lock.delete': '특별실 잠금 풂',
   'roster.create': '명단 추가', 'roster.concurrent-add': '겸임 데려옴', 'roster.import': '명단 가져옴', 'roster.lock': '계정 잠금', 'roster.reset-password': '비밀번호 초기화', 'roster.unlock': '계정 잠금 풂', 'roster.update': '명단 고침',
   'school.quick_start': '빠른 시작(반·교시 한 번에 만듦)', 'small-school.save': '작은 학교 설정 저장', 'soft-weights.save': '권장 규칙 설정 저장',

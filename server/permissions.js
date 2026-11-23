@@ -24,6 +24,7 @@ export const PERMISSIONS = {
   'booking.manage': [ADMIN], // 고정 칸 잠금·남의 예약 취소
   'attendance.own': [ADMIN, STAFF], // 내 근태 입력
   'attendance.manage': [ADMIN], // 남의 근태·월 마감·마감 풀기
+  'school.backup': [ADMIN], // 학교 자료 내려받기(백업)
   'audit.view': [ADMIN], // 감사 로그
 };
 

@@ -12,6 +12,7 @@ import Mine from '../grid/Mine.jsx';
 import AutoGen from '../generate/AutoGen.jsx';
 import SoftSettings from '../rules/SoftSettings.jsx';
 import OrgConfig from '../settings/OrgConfig.jsx';
+import BackupButton from './BackupButton.jsx';
 import FeatureBoard from '../settings/FeatureBoard.jsx';
 import { HelpModal, MenuIntro, Welcome } from '../grid/Guide.jsx';
 import { orderLine } from '../../../shared/feature-guide.js';
@@ -113,6 +114,7 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
           </div>
         )}
         <ChangePassword onDone={onUser} />
+        {admin && <BackupButton orgId={user.orgId} />}
       </Panel>
     </Tabs>
     </IntroCtx.Provider>
