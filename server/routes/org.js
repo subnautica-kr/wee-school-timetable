@@ -29,6 +29,7 @@ const configIn = z.object({
     teacherDayMode: z.enum(['분산', '몰기']), earlyTiers: z.array(z.number().int().min(1).max(3)).max(3), lunchAfter: z.number().int().min(1).max(12),
   }).partial(),
   roomCapacity: z.object({ count: z.enum(['students', 'classes']) }).partial(),
+  secondTeacher: z.object({ inSubstitute: z.boolean(), inSoftScore: z.boolean() }).partial().strict(),
   features: z.object(Object.fromEntries(FEATURE_KEYS.map((k) => [k, z.boolean()]))).partial().strict(), // 모르는 스위치 키는 400
 }).partial();
 

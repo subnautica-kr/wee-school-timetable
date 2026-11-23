@@ -50,6 +50,7 @@ export function makeSoftScore(input) {
   for (const [g, v] of Object.entries(input?.periods?.grades || {})) if (v?.lunchAfter > 0) lunchAfter[g] = v.lunchAfter;
   const avoid = resolveAvoid(input?.avoid ?? input?.weights?.avoid);
   const options = resolveOptions(input?.options ?? input?.weights?.options);
+  const secondInSoft = input?.secondInSoft === true;
   const params = resolveParams(input?.params ?? input?.weights?.params, input?.lines);
   // 복식 묶음: 같은 묶음 반들의 같은 교사·교과·요일·교시 칸은 한 수업 — 교사 기준 규칙에선 한 번만 센다(dup 표시)
   const groupOf = new Map();
@@ -57,21 +58,28 @@ export function makeSoftScore(input) {
   return ({ cells }) => {
     const ids = new Set();
     const seen = new Set();
+    const secondCells = [];
     const state = {
       classrooms: input.classrooms,
       lunchAfter,
       teachers: [],
       cells: cells.map((c) => {
-        if (c.membership_id != null) ids.add(c.membership_id);
-        let dup = false;
-        const grp = groupOf.get(String(c.classroom_id));
-        if (grp !== undefined && c.membership_id != null) {
-          const k = `${grp}|${c.membership_id}|${c.subject_id}|${c.weekday}|${c.period}`;
-          dup = seen.has(k);
-          seen.add(k);
-        }
-        return { classroom_id: c.classroom_id, weekday: c.weekday, period: c.period, subject_id: c.subject_id, teacher_id: c.membership_id ?? null, room_id: c.special_room_id ?? null, ...(dup ? { dup: true } : {}) };
+        const mk = (tid, room) => {
+          if (tid != null) ids.add(tid);
+          let dup = false;
+          const grp = groupOf.get(String(c.classroom_id));
+          if (grp !== undefined && tid != null) {
+            const k = `${grp}|${tid}|${c.subject_id}|${c.weekday}|${c.period}`;
+            dup = seen.has(k);
+            seen.add(k);
+          }
+          return { classroom_id: c.classroom_id, weekday: c.weekday, period: c.period, subject_id: c.subject_id, teacher_id: tid ?? null, room_id: room, ...(dup ? { dup: true } : {}) };
+        };
+        // 기관 설정 secondTeacher.inSoftScore: 켜면 둘째 교사도 그 칸의 교사로 센다 — 교사 기준 규칙만 보는 별도 목록(secondCells)에 담아 반·교과·특별실 셈은 그대로 둔다
+        if (secondInSoft && c.second_membership_id != null && String(c.second_membership_id) !== String(c.membership_id)) secondCells.push(mk(c.second_membership_id, null));
+        return mk(c.membership_id, c.special_room_id ?? null);
       }),
+      secondCells,
       avoid,
       options,
       params,

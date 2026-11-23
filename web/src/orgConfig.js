@@ -11,6 +11,7 @@ export const DEFAULTS = {
   duties: ['담임', '전담', '비교과'],
   roleLabels: {},
   attendanceMonthlyCap: null,
+  secondTeacher: { inSubstitute: true, inSoftScore: false },
 };
 
 // 받은 값을 기본값 위에 얹는다(모르는 모양은 기본값으로 둔다)
@@ -25,6 +26,7 @@ export function mergeConfig(src) {
     limits: { ...DEFAULTS.limits, ...(s.limits || {}) },
     substitute: { ...DEFAULTS.substitute, ...(s.substitute || {}), order: list(s.substitute?.order, DEFAULTS.substitute.order) },
     duties: list(s.duties, DEFAULTS.duties),
+    secondTeacher: { ...DEFAULTS.secondTeacher, ...(s.secondTeacher || {}) },
     roleLabels: s.roleLabels && typeof s.roleLabels === 'object' ? s.roleLabels : {},
   };
 }
