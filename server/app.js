@@ -23,6 +23,7 @@ import { substituteRouter } from './routes/substitute.js';
 import { bookingRouter } from './routes/booking.js';
 import { exportRouter } from './routes/export.js';
 import { backupRouter } from './routes/backup.js';
+import { trashRouter } from './routes/trash.js';
 import { preCompressed } from './precompressed.js';
 
 const PgStore = connectPgSimple(session);
@@ -129,6 +130,7 @@ export function createApp(pool, opts = {}) {
   app.use('/api/orgs/:orgId', bookingRouter(pool));
   app.use('/api/orgs/:orgId', exportRouter(pool));
   app.use('/api/orgs/:orgId', backupRouter(pool));
+  app.use('/api/orgs/:orgId', trashRouter(pool));
 
   app.use('/api', (req, res) => res.status(404).json({ error: '없습니다' }));
 

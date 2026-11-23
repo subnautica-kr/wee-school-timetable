@@ -26,7 +26,7 @@ export const HAS_DB = !!(process.env.DATABASE_URL || process.env.DATABASE_URL_FI
 export const PW = 'pw-test-1234';
 
 // 지울 차례(참조 받는 표가 뒤)
-const ORG_TABLES = ['attendance_allowed', 'attendance', 'month_close', 'booking', 'room_lock', 'substitute', 'cell', 'timetable', 'pin', 'teaching_load', 'classroom', 'term', 'subject', 'special_room', 'audit_log'];
+const ORG_TABLES = ['delete_batch', 'attendance_allowed', 'attendance', 'month_close', 'booking', 'room_lock', 'substitute', 'cell', 'timetable', 'pin', 'teaching_load', 'classroom', 'term', 'subject', 'special_room', 'audit_log'];
 
 // 시험이 만든 기관·계정을 끝에 지운다(참조 받는 표 먼저). 로그인 기관 목록에 시험 기관이 남지 않게 — 시험마다 이걸 쓴다.
 // 고르는 기준은 「넘긴 id」와 「tag 접두사(이름·로그인 `tag-%`)」뿐 — 표를 통째로 비우거나 넓은 LIKE 를 쓰지 않는다.
