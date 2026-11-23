@@ -11,6 +11,7 @@ import { featureOn } from '../features.js';
 import { genNoteTexts } from './genNotes.js';
 import { teacherNames } from '../grid/secondTeacher.js';
 import { useConfirm } from '../Confirm.jsx';
+import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 
 const K = 8; // 후보 수 기본값(화면 입력칸이 덮고 localStorage 에 기억)
 const PER_MS = 3000; // 후보 하나당 시간 기본값(ms)
@@ -163,6 +164,7 @@ function Drafts({ P, input, list, tid, setTid, reload }) {
   const [copyName, setCopyName] = useState('');
   const [msg, setMsg] = useState(null);
   const [ask, confirmBox] = useConfirm();
+  const [del, delBox] = useDelete();
   const load = useCallback(() => (tid ? api('GET', `${P}/timetables/${tid}`).then(setD).catch((e) => setMsg({ color: 'red', text: e.message })) : setD(null)), [P, tid]);
   useEffect(() => { load(); }, [load]);
   const act = (fn) => async (...a) => { setMsg(null); try { await fn(...a); } catch (e) { setMsg({ color: 'red', text: e.message }); } };
@@ -180,7 +182,7 @@ function Drafts({ P, input, list, tid, setTid, reload }) {
   if (!list.length) return null;
   return (
     <Stack mt="lg">
-      {confirmBox}
+      {confirmBox}{delBox}
       <Group align="end">
         <Select label="저장한 시간표 (수정 모드)" placeholder="고르세요" data={list.map((t) => ({ value: String(t.id), label: `${t.name} (${t.status}${t.starts_on ? ` · ${String(t.starts_on).slice(0, 10)}부터` : ''})` }))} value={tid ? String(tid) : null} onChange={(v) => setTid(v ? Number(v) : null)} />
       </Group>
@@ -203,10 +205,8 @@ function Drafts({ P, input, list, tid, setTid, reload }) {
             )}
             <TextInput label="복제 이름" placeholder={`${tt.name} 사본`} value={copyName} onChange={(e) => setCopyName(e.currentTarget.value)} />
             <Button variant="default" onClick={act(async () => { const t = await api('POST', `${P}/timetables/${tid}/copy`, { name: copyName.trim() || `${tt.name} 사본` }); setCopyName(''); reload(); setTid(t.id); })}>복제</Button>
-            <Button color="red" variant="light" onClick={act(async () => {
-              if (!(await ask(`「${tt.name}」을 지울까요?${tt.status === '확정' ? ' 확정된 시간표입니다.' : ''}`, { yes: '지우기' }))) return;
-              await api('DELETE', `${P}/timetables/${tid}`); setTid(null); reload();
-            })}>지우기</Button>
+            <Button color="red" variant="light" onClick={() => del(cascadeOpts(P, 'timetable', tid, tt.name, `${P}/timetables/${tid}`, {
+              lead: `이 시간표(${tt.status})를 지웁니다.${tt.status === '확정' ? ' 확정된 시간표라 교직원 화면에서도 사라집니다.' : ''}`, onDone: () => { setTid(null); reload(); } }))}>지우기</Button>
           </Group>
           <ModeGrid input={input} cells={d.cells} levels={d.levels} onSwap={swap} />
         </>

@@ -13,6 +13,7 @@ import AutoGen from '../generate/AutoGen.jsx';
 import SoftSettings from '../rules/SoftSettings.jsx';
 import OrgConfig from '../settings/OrgConfig.jsx';
 import BackupButton from './BackupButton.jsx';
+import TrashBox from './TrashBox.jsx';
 import VersionHistory from './VersionHistory.jsx';
 import { hasNewVersion } from '../changelog.js';
 import { readSeenVersion, writeSeenVersion } from '../seenVersion.js';
@@ -121,6 +122,7 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
         )}
         <ChangePassword onDone={onUser} />
         {admin && <BackupButton orgId={user.orgId} />}
+        {admin && <TrashBox orgId={user.orgId} />}
         <VersionHistory isNew={isNew} onSeen={markSeen} />
       </Panel>
     </Tabs>
