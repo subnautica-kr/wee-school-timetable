@@ -176,7 +176,8 @@ export function loadsRouter(pool) {
     try {
       const lid = id.safeParse(req.params.id);
       const p = body.safeParse(req.body);
-      if (!lid.success || !p.success) return notFound(res);
+      if (!lid.success) return notFound(res);
+      if (!p.success) return res.status(400).json({ error: '입력을 확인해 주세요' }); // 본문이 틀린 것은 「없다」가 아니라 입력 오류(POST 와 같게)
       if (!(await check(req, p.data))) return notFound(res);
       const sets = [];
       const vals = [lid.data, req.orgId];
