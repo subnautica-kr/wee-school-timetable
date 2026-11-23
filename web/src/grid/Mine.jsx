@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Group, Stack, Table, Text } from '@mantine/core';
+import { Alert, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
 import { api, appliedMinePath } from '../api.js';
 import { EmptyHint } from './Guide.jsx';
 import { emptyReason } from './mineReason.js';
+import { isSecondMark } from './secondTeacher.js';
 
 import { useOrgConfig } from '../orgConfig.js';
 
@@ -42,7 +43,7 @@ export default function Mine({ P }) {
                   <Table.Td key={wi} >
                     {at(wi + 1, p).map((c) => (
                       <div key={c.classroom_id}>
-                        <Text size="sm" fw={600}>{c.grade}-{c.class_no} {c.subject || ''}</Text>
+                        <Text size="sm" fw={600}>{c.grade}-{c.class_no} {c.subject || ''}{isSecondMark(c) && <Badge size="xs" variant="light" ml={4}>둘째</Badge>}</Text>
                         {c.room && <Text size="xs" c="dimmed">{c.room}</Text>}
                       </div>
                     ))}
