@@ -9,6 +9,26 @@ const LEVELS = [
   ['classes', '반까지 전부', '위에 더해 이번 학기의 반(과 담임 지정)까지 지워집니다. 명단·교과·특별실은 그대로입니다. 학기를 거의 빈 채로 되돌릴 때 고릅니다.'],
 ];
 
+// 「이번 학기 비우기」 단추 — 위험 구역 말고도 「이미 자료가 있어 막힘」 자리가 같은 확인 창을 연다(term 을 안 주면 스스로 읽는다)
+export function ClearTermButton({ P, term: given, level = 'timetable', onDone, label = '이번 학기 비우기…', variant = 'outline' }) {
+  const [own, setOwn] = useState(null);
+  const [del, delBox] = useDelete();
+  useEffect(() => { if (!given) api('GET', `${P}/term`).then(setOwn).catch(() => setOwn(null)); }, [P, given]);
+  const term = given ?? own;
+  const name = term ? `${term.year}년 ${term.semester}학기` : '';
+  return (
+    <>
+      {delBox}
+      <Button color="red" variant={variant} disabled={!term} onClick={() => del({
+        title: `${name} 비우기 — ${LEVELS.find((l) => l[0] === level)[1]}`, danger: true, restorable: true, typeLabel: '학기 이름', yes: '비우기',
+        lead: `「${name}」에서 아래 단계까지 비웁니다. 학기 자체는 남습니다.`,
+        previewPath: `${P}/terms/${term.id}/clear-preview?level=${level}`,
+        run: (typed) => api('POST', `${P}/terms/${term.id}/clear`, { level, confirm: typed }), onDone,
+      })}>{label}</Button>
+    </>
+  );
+}
+
 // 기관 설정 맨 아래 「위험 구역」 — 이번 학기 비우기(이름 글자로 확인) · 방금 연 학기 되돌리기
 export default function DangerZone({ P }) {
   const [term, setTerm] = useState(null);
@@ -32,12 +52,7 @@ export default function DangerZone({ P }) {
           <Stack gap="xs">{LEVELS.map(([v, t, d]) => <Radio key={v} value={v} label={t} description={d} />)}</Stack>
         </Radio.Group>
         <Group>
-          <Button color="red" variant="outline" disabled={!term} onClick={() => del({
-            title: `${name} 비우기 — ${LEVELS.find((l) => l[0] === level)[1]}`, danger: true, restorable: true, typeLabel: '학기 이름', yes: '비우기',
-            lead: `「${name}」에서 아래 단계까지 비웁니다. 학기 자체는 남습니다.`,
-            previewPath: `${P}/terms/${term.id}/clear-preview?level=${level}`,
-            run: (typed) => api('POST', `${P}/terms/${term.id}/clear`, { level, confirm: typed }), onDone: done(`${name}을 비웠습니다.`),
-          })}>이번 학기 비우기…</Button>
+          <ClearTermButton P={P} term={term} level={level} onDone={done(`${name}을 비웠습니다.`)} />
         </Group>
         <Text fw={600} mt="sm">방금 연 학기 되돌리기</Text>
         <Text size="sm" c="dimmed">「새 학기 시작」을 누른 직후 잘못 열었을 때, 새 학기를 없애고 지난 학기를 다시 진행 중으로 돌립니다. 새 학기에 시간표를 확정했거나 보결·근태를 적었다면 되돌릴 수 없습니다.</Text>

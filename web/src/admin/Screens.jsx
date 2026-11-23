@@ -53,8 +53,7 @@ function Panel({ v, hint, children }) {
   return <Tabs.Panel value={v}>{hint && <Text size="sm" c="dimmed" mb="sm" className="no-print">{hint}</Text>}{ctx && <MenuIntro menu={v} user={ctx.user} features={ctx.features} />}{children}</Tabs.Panel>;
 }
 
-// 기관 화면 탭 — 폰도 위쪽 탭 한 줄을 그대로 두고 가로로 밀어 넘긴다. 「내 정보」 안 카드 메뉴는 바로가기
-const PHONE_MAIN = ['grid', 'sub', 'rooms', 'att', 'me'];
+// 기관 화면 탭 — 폰도 위쪽 탭 한 줄을 그대로 두고 가로로 밀어 넘긴다. 메뉴를 보여 주는 곳은 이 한 줄뿐(「내 정보」 안 나머지 메뉴 카드는 같은 메뉴를 두 번 보여 줘서 뺐다, T-1215)
 function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, setOv, jump }) {
   const edit = user.role !== '보기만';
   const all = [
@@ -71,7 +70,7 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
     { v: 'rooms', label: '특별실', hint: '과학실·음악실 같은 특별실을 언제 누가 쓰는지 보고 예약합니다', show: edit },
     { v: 'audit', label: '기록', hint: '누가 언제 무엇을 바꿨는지 확인합니다', show: admin },
     { v: 'feat', label: '기능 고르기', hint: admin ? '필요한 기능만 켜고 끕니다. 넣어 둔 자료는 남습니다' : '우리 학교 시간표 도구에 어떤 기능이 있는지 봅니다', show: true },
-    { v: 'me', label: '내 정보', hint: phone ? '비밀번호를 바꾸거나 나머지 메뉴를 엽니다' : '비밀번호를 바꿉니다', show: true },
+    { v: 'me', label: '내 정보', hint: '비밀번호를 바꿉니다', show: true },
   ];
   const [tip, setTip] = useState(null);
   const [want, setTab] = useState(admin && !phone ? 'roster' : admin ? 'grid' : 'mine');
@@ -92,7 +91,6 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
   }, [phone, tab, loaded]);
   if (!loaded) return null; // 설정을 받기 전엔 메뉴를 그리지 않는다(꺼진 탭이 잠깐 보였다 사라지는 깜빡임)
   const bar = items;
-  const more = phone ? items.filter((i) => !PHONE_MAIN.includes(i.v)) : [];
   return (
     <IntroCtx.Provider value={{ user, features }}>
     {admin && <OrderHint features={features} />}
@@ -115,11 +113,6 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
       {on('audit') && <Panel v="audit" hint={H.audit}><AuditLog orgId={user.orgId} /></Panel>}
       <Panel v="feat" hint={H.feat}><FeatureBoard P={P} admin={admin} onChanged={setOv} onTry={tryGo} /></Panel>
       <Panel v="me" hint={H.me}>
-        {more.length > 0 && (
-          <div className="no-print more-menu" data-testid="more-menu">
-            {more.map((i) => <div key={i.v}><Button variant="light" onClick={() => setTab(i.v)}>{i.label}</Button><Text size="xs" c="dimmed">{i.hint}</Text></div>)}
-          </div>
-        )}
         <ChangePassword onDone={onUser} />
         {admin && <BackupButton orgId={user.orgId} />}
         {admin && <TrashBox orgId={user.orgId} />}

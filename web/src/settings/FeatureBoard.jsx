@@ -4,7 +4,7 @@ import { api } from '../api.js';
 import Term from '../Term.jsx';
 import { useConfirm } from '../Confirm.jsx';
 import { configPath, mergeConfig } from '../orgConfig.js';
-import { featureOn, featureDiff, featuresUpTo, featureStages, tryMenu } from '../../../shared/features.js';
+import { featureOn, featureDiff, featuresUpTo, featureStages, tryMenu, FEATURE_DATA, offNotice } from '../../../shared/features.js';
 import { PITCH, PITCH_NOTE } from '../../../shared/feature-pitch.js';
 
 const Row = ({ label, children }) => children ? <div><Text size="sm" fw={600}>{label}</Text><Text size="sm">{children}</Text></div> : null;
@@ -66,7 +66,14 @@ export default function FeatureBoard({ P, admin, onChanged, onTry }) {
       setF(next); onChanged?.(next); setMsg(text);
     } catch (e) { setMsg(`저장하지 못했습니다: ${e.message}`); } finally { setBusy(false); }
   }
-  const toggle = (k, v) => apply({ [k]: v }, null);
+  // 끌 때: 남는 자료를 이미 있는 API 로 세어 「메뉴만 숨고 자료는 남아요(n건)」 안내를 띄운다. 못 세면 건수 없이 문구만.
+  const toggle = async (k, v) => {
+    if (v) return apply({ [k]: v }, null);
+    const d = FEATURE_DATA[k];
+    let n;
+    if (d) { try { n = d.count(await api('GET', `${P}${d.path}`)); } catch { n = undefined; } }
+    return apply({ [k]: v }, offNotice(k, n));
+  };
   const stage = async (n) => {
     if (!(await ask(`${n === 0 ? '모든 기능을 끕니다' : `${n}단계까지 켜고 나머지는 끕니다`}. 끈 기능에 넣어 둔 자료는 지워지지 않고, 다시 켜면 그대로 나옵니다. 계속할까요?`))) return;
     apply(featureDiff(features, featuresUpTo(n)), n === 0 ? '0단계로 했습니다(격자·내 정보·도움말만).' : `${n}단계까지 켰습니다.`);

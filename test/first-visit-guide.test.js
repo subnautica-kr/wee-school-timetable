@@ -22,7 +22,7 @@ test('메뉴 → 소개 글: 격자는 intro · 켜진 첫 스위치 · 내 정�
   assert.equal(pitchKeyFor('me', {}, PITCH), null);
   assert.equal(pitchKeyFor('gen', {}, PITCH), 'gen');
   assert.equal(pitchKeyFor('school', { setup: false }, PITCH), 'loads'); // 첫 스위치가 꺼졌으면 다음 켜진 것
-  assert.equal(pitchKeyFor('softset', { soft: false, small: false }, PITCH), 'levels');
+  assert.equal(pitchKeyFor('softset', { soft: false, small: false }, PITCH), null); // 규칙 수위는 학교 기본 안 탭 — 생성 설정 메뉴는 안 열린다(T-1215)
   for (const m of ['roster', 'mine', 'school', 'gen', 'softset', 'orgcfg', 'out', 'att', 'sub', 'rooms', 'audit']) assert.ok(pitchKeyFor(m, {}, PITCH), m);
 });
 test('순서 안내는 켜진 것만', () => {
