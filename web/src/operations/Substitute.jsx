@@ -9,7 +9,7 @@ import { todayStr as today } from '../today.js';
 const GRADE_COLOR = { A: 'green', B: 'teal', C: 'blue', D: 'gray' };
 
 // 보결 — 폰(390px) 먼저: 한 건이 카드 하나, 버튼은 줄바꿈되는 작은 버튼
-export default function Substitute({ P, admin }) {
+export default function Substitute({ P, admin, onGo }) {
   const [tab, setTab] = useState('list');
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
@@ -51,17 +51,24 @@ export default function Substitute({ P, admin }) {
         </Card>
       )))}
       <Modal opened={!!cand} onClose={() => setCand(null)} title={<><Term k="보결">보결</Term> 후보</>} fullScreen={typeof window !== 'undefined' && window.innerWidth < 600}>
-        {cand && <Candidates data={cand} admin={admin} onAssign={(body) => act(`${cand.substitute.id}/assign`, body, '지정했습니다')} />}
+        {cand && <Candidates data={cand} admin={admin} onGo={onGo ? () => { setCand(null); onGo('school'); } : null} onAssign={(body) => act(`${cand.substitute.id}/assign`, body, '지정했습니다')} />}
       </Modal>
     </Stack>
   );
 }
 
-function Candidates({ data, admin, onAssign }) {
+function Candidates({ data, admin, onAssign, onGo }) {
   const [outside, setOutside] = useState('');
-  const why = data.excluded.filter((e) => e.code !== 'teaching');
+  const why = data.excluded.filter((e) => e.code !== 'teaching' && e.code !== 'no-homeroom');
+  const noRoom = data.excluded.filter((e) => e.code === 'no-homeroom');
   return (
     <Stack gap="xs">
+      {noRoom.length > 0 && (
+        <Alert color="yellow" title={`담임 ${noRoom.length}명에 반이 안 붙어 있어 후보에서 빠졌습니다`}>
+          <Text size="sm">{noRoom.map((e) => e.name).join(' · ')}</Text>
+          {onGo && <Button size="compact-sm" variant="subtle" onClick={onGo}>붙이러 가기 → 학교 기본의 반 표</Button>}
+        </Alert>
+      )}
       {!data.tt && <Alert color="yellow">그 날 적용되는 확정 시간표가 없어 등급을 못 냈습니다.</Alert>}
       {data.candidates.length > 0 && <Text size="xs" c="dimmed">위에 있는 분부터 권합니다. 배지는 그 선생님이 어떤 처지인지를 말합니다.</Text>}
       {data.candidates.map((c) => (

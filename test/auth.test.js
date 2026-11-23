@@ -118,7 +118,7 @@ test('로그인 흐름', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (
     const buf = Buffer.from(await wb.xlsx.writeBuffer());
     const pv = await a.call('POST', `/api/orgs/${school}/roster/import/preview`, null, buf);
     assert.equal(pv.status, 200);
-    assert.deepEqual(pv.json.mapping, { name: 0, loginId: 1, role: 2, duty: -1 });
+    assert.deepEqual(pv.json.mapping, { name: 0, loginId: 1, role: 2, duty: -1, classroom: -1 });
     const rows = pv.json.rows.map(([name, loginId, role]) => ({ name, loginId, role }));
     const im = await a.call('POST', `/api/orgs/${school}/roster/import`, { rows });
     assert.equal(im.json.made, 1);

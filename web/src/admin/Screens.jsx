@@ -96,7 +96,7 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
       {on('out') && <Panel v="out" hint={H.out}><Output P={P} admin={admin} /></Panel>}
       {on('mine') && <Panel v="mine" hint={H.mine}><Mine P={P} /></Panel>}
       {on('att') && <Panel v="att" hint={H.att}><Attendance P={P} admin={admin} /></Panel>}
-      {on('sub') && <Panel v="sub" hint={H.sub}><Substitute P={P} admin={admin} /></Panel>}
+      {on('sub') && <Panel v="sub" hint={H.sub}><Substitute P={P} admin={admin} onGo={setTab} /></Panel>}
       {on('rooms') && <Panel v="rooms" hint={H.rooms}><Rooms P={P} admin={admin} onGo={setTab} /></Panel>}
       {on('audit') && <Panel v="audit" hint={H.audit}><AuditLog orgId={user.orgId} /></Panel>}
       <Panel v="feat" hint={H.feat}><FeatureBoard P={P} admin={admin} onChanged={setOv} onTry={tryGo} /></Panel>

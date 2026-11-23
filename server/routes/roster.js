@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import { requireOrgAction } from '../guard.js';
 import { createAccount, resetPassword, ID_RE } from '../accounts.js';
 import { getRuleLevels } from '../rules.js';
+import { currentTerm } from './school.js';
 import { audit, killSessions } from '../audit.js';
 import { CEIL, dutyFromText, dutyKnown, dutyWarnings, limitWarnings, loadConfig, withWarnings } from '../orgConfig.js';
 
@@ -182,11 +183,11 @@ export function rosterRouter(pool) {
     try {
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet('명단');
-      ws.addRow(['이름', 'ID', '역할', '담임/전담']);
-      ws.addRow(['홍길동', '홍길동', '교직원', '담임']);
-      ws.addRow(['(예시 줄은 지우고 채우세요. 역할: 기관관리자·교직원·보기만 / 담임·전담·비교과는 비워도 됩니다. ID 를 비우면 이름이 ID 가 됩니다)']);
+      ws.addRow(['이름', 'ID', '역할', '담임/전담', '반']);
+      ws.addRow(['홍길동', '홍길동', '교직원', '담임', '3-1']);
+      ws.addRow(['(예시 줄은 지우고 채우세요. 역할: 기관관리자·교직원·보기만 / 담임·전담·비교과는 비워도 됩니다. ID 를 비우면 이름이 ID 가 됩니다. 「반」은 선택 — 3-1 꼴로 적으면 그 반 담임으로 붙고, 비워도 됩니다)']);
       ws.getRow(1).font = { bold: true };
-      ws.columns.forEach((c, i) => (c.width = [14, 16, 14, 14][i]));
+      ws.columns.forEach((c, i) => (c.width = [14, 16, 14, 14, 10][i]));
       res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent('명단 양식.xlsx')}`);
       res.send(Buffer.from(await wb.xlsx.writeBuffer()));
@@ -227,7 +228,7 @@ export function rosterRouter(pool) {
         rows: all.slice(1, MAX_ROWS + 1),
         truncated: all.length > MAX_ROWS + 1,
         ...(limitWarnings(await loadConfig(pool, req.orgId), { rosterRows: all.length - 1 }).length ? { warnings: limitWarnings(await loadConfig(pool, req.orgId), { rosterRows: all.length - 1 }) } : {}),
-        mapping: { name: guess(['이름', '성명']), loginId: guess(['ID', 'id', '아이디']), role: guess(['역할']), duty: guess(['담임', '전담']) },
+        mapping: { name: guess(['이름', '성명']), loginId: guess(['ID', 'id', '아이디']), role: guess(['역할']), duty: guess(['담임', '전담']), classroom: guess(['반']) },
       });
     } catch (e) {
       next(e);
@@ -238,7 +239,7 @@ export function rosterRouter(pool) {
   // 응답의 temp 는 한 번뿐 — 「ID·임시 비밀번호」 목록은 화면이 이 응답으로 내려받게 만든다.
   r.post('/import', async (req, res, next) => {
     try {
-      const p = z.object({ rows: z.array(z.object({ name: z.string().max(200), loginId: z.string().max(200).optional(), role: z.string().max(50).optional(), duty: z.string().max(50).optional() })).max(MAX_ROWS), confirm: z.boolean().optional() }).safeParse(req.body);
+      const p = z.object({ rows: z.array(z.object({ name: z.string().max(200), loginId: z.string().max(200).optional(), role: z.string().max(50).optional(), duty: z.string().max(50).optional(), classroom: z.string().max(50).optional() })).max(MAX_ROWS), confirm: z.boolean().optional() }).safeParse(req.body);
       if (!p.success) return res.status(400).json({ error: '입력을 확인해 주세요' });
       const cfg = await loadConfig(pool, req.orgId);
       const warnings = limitWarnings(cfg, { rosterRows: p.data.rows.length });
@@ -250,6 +251,7 @@ export function rosterRouter(pool) {
         return res.status(409).json({ needConfirm: true, odd: odd.map((x) => ({ ...x, msg: dutyWarnings(cfg, x.duty)[0].msg })), duties: cfg.duties });
       }
       // argon2 해시가 줄당 ~80ms 라 1000줄 77초 — 8줄씩 묶어 동시에 만든다(결과는 줄 순서 그대로). 같은 ID 가 한 묶음에 겹치면 어느 줄이 이길지는 정해지지 않고 한 줄만 만들어진다.
+      const term = await currentTerm(pool, req.orgId);
       const doRow = async (raw, i) => {
         const line = i + 1;
         const name = (raw.name || '').trim();
@@ -264,13 +266,23 @@ export function rosterRouter(pool) {
         }
         let a = await createAccount(pool, { orgId: req.orgId, name, loginId, role, duty });
         const dw = dutyLevel === '끔' ? [] : dutyWarnings(cfg, duty);
-        return a.error ? { line, name, loginId, ok: false, error: a.error } : { line, name, loginId, role, ok: true, temp: a.temp, ...(dw.length ? { warnings: dw } : {}) };
+        if (a.error) return { line, name, loginId, ok: false, error: a.error };
+        // 선택 열 「반」: 있는 반이면 그 반 담임으로 붙인다. 없는 반이면 사람은 받고 못 찾았다고만 알린다.
+        const room = (raw.classroom || '').trim();
+        let classroom;
+        if (room) {
+          const m = room.match(/^(\d{1,2})\s*(?:학년|-|\s)\s*(\d{1,2})\s*(?:반)?$/);
+          const hit = m && (await pool.query(`UPDATE classroom SET homeroom_membership_id = $4 WHERE org_id = $1 AND term_id = $2 AND grade = $3 AND class_no = $5 AND deleted_at IS NULL RETURNING id`, [req.orgId, term.id, Number(m[1]), a.membershipId, Number(m[2])])).rows[0];
+          classroom = hit ? { text: room, found: true } : { text: room, found: false };
+        }
+        return { line, name, loginId, role, ok: true, temp: a.temp, ...(dw.length ? { warnings: dw } : {}), ...(classroom ? { classroom } : {}) };
       };
       const rows = p.data.rows;
       for (let i = 0; i < rows.length; i += 8) results.push(...(await Promise.all(rows.slice(i, i + 8).map((raw, j) => doRow(raw, i + j)))));
       const made = results.filter((x) => x.ok).length;
       await audit(pool, { ...me(req), action: 'roster.import', table: 'membership', after: { made, failed: results.length - made } });
-      res.json(withWarnings({ results, made, failed: results.length - made }, warnings));
+      const classMissing = results.filter((x) => x.classroom && !x.classroom.found).map((x) => ({ line: x.line, name: x.name, classroom: x.classroom.text }));
+      res.json(withWarnings({ results, made, failed: results.length - made, classMissing }, warnings));
     } catch (e) {
       next(e);
     }

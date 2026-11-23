@@ -18,7 +18,7 @@ const baseCtx = (over = {}) => ({
 
 test('(가) 반 없는 담임은 보결 후보에서 빠진다 — 담임을 붙이면 후보', () => {
   const noRoom = rankCandidates(baseCtx({ members: [{ id: 1, name: '가', duty: '담임', homeroom: null }] }));
-  assert.deepEqual(noRoom.excluded.map((x) => x.code), ['teaching']); // 고칠 것: T-1203
+  assert.deepEqual(noRoom.excluded.map((x) => x.code), ['no-homeroom']); // T-1203 반영: 「수업 중」이 아니라 「반이 안 붙은 담임」
   assert.equal(noRoom.candidates.length, 0);
   // 대조 — 반을 붙이고 그 반 칸을 전담이 가르치면 A 등급 후보
   const withRoom = rankCandidates(baseCtx({
@@ -57,7 +57,7 @@ test('9번: 하교 판정은 요일을 안 본다 · 확정 전 빈칸 수도 �
   assert.equal(emptyCount([{ grade: 1 }], cfg, []), 25); // 고칠 것: T-1205 (요일별 교시 수)
 });
 
-test('7번: 큰 학교를 담임 시수 없이 심으면 빠진 교사 알림이 사람마다 하나(56)', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {
+test('7번: 큰 학교를 담임 시수 없이 심으면 빠진 교사 알림이 한 상자(56명)', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {
   const { pool, orgId, tag, call, P } = await setupSchoolEnv(t, 'rep');
   const s = bigSchool();
   const mids = await seedPeople(pool, orgId, tag, s);
@@ -65,7 +65,9 @@ test('7번: 큰 학교를 담임 시수 없이 심으면 빠진 교사 알림이
   const r = await call('GET', `${P}/loads`);
   assert.equal(r.status, 200);
   const miss = r.json.alerts.filter((a) => a.rule === 'load_missing_teacher');
-  assert.equal(miss.length, 56); // 담임 51 + 비교과 5 — 한 줄로 묶어야. 고칠 것: T-1203
+  assert.equal(miss.length, 1); // T-1203 반영: 한 상자
+  assert.equal(miss[0].detail.count, 56); // 담임 51 + 비교과 5
+  assert.equal(miss[0].detail.people.length, 56);
 });
 
 test('6번: 시수표·칸에는 둘째 교사를 담을 열이 없다', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {
