@@ -119,6 +119,15 @@ pg_dump "$DATABASE_URL" | gzip > backup-$(date +%F).sql.gz
 gunzip -c backup-YYYY-MM-DD.sql.gz | docker compose exec -T db psql -U timetable timetable
 ```
 
+`pg_dump` 가 없는 PC(예: 윈도우)에서는 node 도구로 통째 백업·복원합니다(저장소 폴더에서 `npm ci` 한 뒤). DB 주소는 비밀이라 환경변수로만 넣고 끝나면 지웁니다. 백업 파일에는 비밀번호 해시가 그대로 들어 있으니 안전한 곳에만 둡니다.
+
+```powershell
+# 백업
+$env:DATABASE_URL = '<Render 의 External Database URL>'; node scripts/dump-db.js --out dbdump-before-011.json.gz; Remove-Item Env:DATABASE_URL
+# 복원(빈 DB 에만 — 자료가 있으면 멈춥니다)
+$env:DATABASE_URL = '<새 DB 의 URL>'; node scripts/restore-db.js dbdump-before-011.json.gz; Remove-Item Env:DATABASE_URL
+```
+
 업데이트:
 
 ```bash
