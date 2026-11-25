@@ -10,6 +10,7 @@ import Term from '../Term.jsx';
 import { featureOn } from '../features.js';
 import { genNoteTexts } from './genNotes.js';
 import { teacherNames } from '../grid/secondTeacher.js';
+import { markedName, vacantText } from '../grid/vacant.js';
 import { hasTeacher } from '../../../shared/cellTeachers.js';
 import { buildSheets, SHEET_DEFAULTS } from '../../../shared/sheetCalc.js';
 import { t } from '../T.jsx';
@@ -25,7 +26,7 @@ const LEVEL_COLOR = { 경고: 'red', 알림: 'yellow', 재확인: 'orange', 끔:
 const BG = { green: 'var(--mantine-color-green-1)', yellow: 'var(--mantine-color-yellow-1)', red: 'var(--mantine-color-red-1)', orange: 'var(--mantine-color-orange-1)' };
 
 // 자동 생성 · 시안 관리 · 수정 모드(관리자만)
-export default function AutoGen({ P }) {
+export default function AutoGen({ P, onGoVacant }) {
   const [input, setInput] = useState(null);
   const [error, setError] = useState('');
   const [list, setList] = useState([]);
@@ -41,7 +42,7 @@ export default function AutoGen({ P }) {
   return (
     <Stack>
       {error && <Alert color="red" withCloseButton onClose={() => setError('')}>{error}</Alert>}
-      <Generator P={P} input={gin} onSaved={(t) => { loadList(); setTid(t.id); }} />
+      <Generator P={P} input={gin} onGoVacant={onGoVacant} onSaved={(t) => { loadList(); setTid(t.id); }} />
       <Drafts P={P} input={gin} list={list} tid={tid} setTid={setTid} reload={loadList} />
     </Stack>
   );
@@ -59,7 +60,7 @@ export const clampOpt = (o) => ({
   mealGap: o?.mealGap !== false,
 });
 
-function Generator({ P, input, onSaved }) {
+function Generator({ P, input, onSaved, onGoVacant }) {
   const softOn = featureOn(useOrgConfig(P).features, 'soft'); // 4단계(생성 설정)가 꺼져 있으면 가중을 바꿀 곳이 없다
   const [opt, setOptState] = useState(() => clampOpt(readOpt(P)));
   const setOpt = (o) => { const c = clampOpt({ ...opt, ...o }); setOptState(c); try { localStorage.setItem(optKey(P), JSON.stringify(c)); } catch { /* 기억 못 해도 이번 화면엔 쓴다 */ } };
@@ -122,6 +123,12 @@ function Generator({ P, input, onSaved }) {
         <NumberInput label="후보당 초" min={0.5} max={60} step={0.5} decimalScale={1} w={100} value={opt.sec} onChange={(v) => setOpt({ sec: Number(v) })} />
         <Switch label="전담 식사 빈 칸 필수" description="전담 선생님이 점심때 쉴 칸을 꼭 비워 둡니다. 끄면 그 칸에도 수업이 들어갈 수 있습니다." checked={opt.mealGap} onChange={(e) => setOpt({ mealGap: e.currentTarget.checked })} />
       </Group>
+      {input.vacant?.count > 0 && (
+        <Group gap="xs" data-testid="vacant-line">
+          <Text size="sm" c="yellow.8">{vacantText.genLine(input.vacant.count)}</Text>
+          {onGoVacant && <Button size="compact-xs" variant="light" onClick={onGoVacant}>{t('generate.vacant.go')}</Button>}
+        </Group>
+      )}
       {noLunch.length > 0 && <Text size="sm" c="yellow.8">{noLunch.map((g) => `${g}학년`).join('·')}은 점심 자리가 비어 점심 규칙을 건너뜁니다. 「학교」 화면 학년별 교시·점심에서 「점심은 몇 교시 뒤」를 넣으면 적용됩니다.</Text>}
       {over.length > 0 && <Text size="sm" c="yellow.8" data-testid="over-hours">{over.map((o) => `${o.grade}-${o.class_no} 시수 ${o.hours} > 한 주 교시 ${o.cap}`).join(' · ')} — 다 못 놓을 수 있습니다. 시수표나 「학교」 화면 교시 수(요일마다 다르게)를 확인하세요.</Text>}
       {!opt.mealGap && <Text size="sm" c="yellow.8">식사 빈 칸을 필수에서 뺐습니다. 대신 권장 점수의 「교사 점심시간 확보」가 세어 줍니다.</Text>}
@@ -225,14 +232,15 @@ export function ResultView({ input, cells }) {
   const [view, setView] = useState('teacher');
   const [pick, setPick] = useState({});
   const d = useMemo(() => ({ cells, classrooms: input.classrooms, subjects: input.subjects, teachers: input.teachers, rooms: input.rooms, weekdays: input.weekdays, periodConfig: input.periods }), [input, cells]);
-  const all = useMemo(() => buildSheets(d, SHEET_DEFAULTS, { view }), [d, view]);
+  const sd = useMemo(() => ({ ...d, teachers: [...d.teachers, ...(input.inactive_teachers || []).map((x) => ({ id: x.id, name: markedName(x.name) }))] }), [d, input]); // 칸에 이름은 보이되 고르는 목록엔 안 넣는다
+  const all = useMemo(() => buildSheets(sd, SHEET_DEFAULTS, { view }), [sd, view]);
   // 고르기 목록: 시트 제목과 같은 순서 · 값은 대상 id (반별은 input.classrooms 순서)
   const owners = view === 'teacher' ? d.teachers.filter((x) => cells.some((c) => hasTeacher(c, x.id))).sort((a, b) => a.name.localeCompare(b.name, 'ko'))
     : view === 'room' ? (d.rooms || []).filter((x) => cells.some((c) => Number(c.special_room_id) === Number(x.id))).sort((a, b) => a.name.localeCompare(b.name, 'ko'))
       : d.classrooms;
   const label = (x) => (view === 'class' ? `${x.grade}학년 ${x.class_no}반` : x.name); // 문구-예외: 반 이름 꼴(출력 시트와 같은 글자)
   const cur = owners.find((x) => String(x.id) === String(pick[view])) || owners[0];
-  const sheet = cur ? buildSheets(d, SHEET_DEFAULTS, { view, id: cur.id })[0] : null;
+  const sheet = cur ? buildSheets(sd, SHEET_DEFAULTS, { view, id: cur.id })[0] : null;
   return (
     <Stack gap="xs">
       <Group>
@@ -329,7 +337,7 @@ export function ModeGrid({ input, cells, levels = input.levels || {}, onSwap }) 
                       {c ? (
                         <>
                           <Text size="sm" fw={600}>{subj(c.subject_id) || '·'}</Text>
-                          <Text size="xs" c="dimmed">{teacherNames(c, input.teachers).join(' · ')}{c.special_room_id ? ` @${nm(input.rooms, c.special_room_id)?.name || ''}` : ''}</Text>
+                          <Text size="xs" c="dimmed">{teacherNames(c, input.teachers, input.inactive_teachers, t('grid.vacant.mark')).join(' · ')}{c.special_room_id ? ` @${nm(input.rooms, c.special_room_id)?.name || ''}` : ''}</Text>
                           {bad && <Text size="xs" c="red" fw={700}>{bad.some((b) => b.rule === 'teacher_overlap') ? '교사 겹침' : '특별실 겹침'}</Text>}
                           {p > classInfo[cls.id].PW[w] && <Text size="xs" c="orange" fw={700}>교시 수 밖</Text>}
                         </>

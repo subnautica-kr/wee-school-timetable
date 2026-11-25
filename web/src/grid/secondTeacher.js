@@ -4,8 +4,14 @@ import { teachersOf, hasTeacher } from '../../../shared/cellTeachers.js';
 const same = (a, b) => String(a) === String(b);
 
 // 칸 쪽 한 줄 표시용 이름들 — 첫째·둘째 순서. list 는 {id,name}.
-export function teacherNames(cell, list) {
-  return teachersOf(cell).map((id) => (list || []).find((x) => same(x.id, id))?.name).filter(Boolean);
+// inactive(재직 아닌 {id,name})와 mark 를 주면, list 에 없는 이름은 inactive 에서 찾아 「이름 (mark)」 로 붙인다(담당 비었음).
+export function teacherNames(cell, list, inactive = [], mark = '') {
+  return teachersOf(cell).map((id) => {
+    const a = (list || []).find((x) => same(x.id, id));
+    if (a) return a.name;
+    const b = (inactive || []).find((x) => same(x.id, id));
+    return b ? (mark ? `${b.name} (${mark})` : b.name) : undefined;
+  }).filter(Boolean);
 }
 
 // 이 칸(같은 요일·교시)에 고른 교사가 다른 반 칸에 이미 들어 있나 — 막지 않고 알리기 위한 목록.
