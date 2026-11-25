@@ -9,7 +9,8 @@ import { setupSchoolEnv, HAS_DB } from './fixtures/school-env.js';
 const skip = !HAS_DB && 'DB 없음 — 건너뜀';
 
 // 계정을 가리켜도 되는 표: 소속(줄) · 감사 기록 · 지운 묶음. 학교 쪽 표는 줄(membership)만 거쳐 계정에 닿는다.
-const ALLOWED = ['audit_log.user_id', 'delete_batch.created_by', 'membership.user_id'];
+// 014(T-1320b) 계정 쪽 새 표 — 계정에 딸린 기록(초대·알림·글·이동 요청)이라 허용. 학교 자료 표(시간표·시수·명단 값)는 여전히 0건.
+const ALLOWED = ['audit_log.user_id', 'board_comment.author_user_id', 'board_post.author_user_id', 'delete_batch.created_by', 'error_report.user_id', 'invite_code.created_by', 'invite_code.used_by', 'membership.user_id', 'notification.user_id', 'notification_read.user_id', 'transfer_request.created_by', 'transfer_request.decided_by', 'transfer_request.user_id', 'unlinked_account.user_id'];
 
 test('외래키 지킴: app_user 를 가리키는 외래키는 허용 셋뿐(학교 쪽 표 → 계정 0건)', { skip }, async (t) => {
   const { pool } = await setupSchoolEnv(t, 'fk');
