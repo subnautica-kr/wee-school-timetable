@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Badge, Button, ColorInput, Group, NumberInput, Select, Stack, Table, Tabs, Text, TextInput } from '@mantine/core';
 import { api } from '../api.js';
 import { useOrgConfig } from '../orgConfig.js';
+import { t } from '../T.jsx';
 import { OUT_TAB_FEATURE, visibleTabs } from '../features.js';
 
 // 출력 — 내려받기(PDF·엑셀·HWPX) · 급식 벽시계 · 반 비교 · 담임 과목 올리기
@@ -67,7 +68,7 @@ function Download({ P, admin }) {
       {err && <Alert color="red">{err}</Alert>}
       <Group align="end">
         {picker}
-        <Select label="묶음" w={160} allowDeselect={false} value={view} onChange={setView} data={[{ value: 'class', label: '반별' }, { value: 'teacher', label: '교사별' }]} />
+        <Select label="묶음" w={160} allowDeselect={false} value={view} onChange={setView} data={[{ value: 'class', label: '반별' }, { value: 'teacher', label: '교사별' }, { value: 'room', label: t('output.view.room') }]} />
       </Group>
       <Group>
         {['pdf', 'xlsx', 'hwpx'].map((f) => <Button key={f} loading={busy === f} disabled={!tid} onClick={() => go(f)}>{f === 'pdf' ? 'PDF' : f === 'xlsx' ? '엑셀' : '한글(HWPX)'}</Button>)}

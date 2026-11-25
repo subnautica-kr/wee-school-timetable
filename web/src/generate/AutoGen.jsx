@@ -10,6 +10,9 @@ import Term from '../Term.jsx';
 import { featureOn } from '../features.js';
 import { genNoteTexts } from './genNotes.js';
 import { teacherNames } from '../grid/secondTeacher.js';
+import { hasTeacher } from '../../../shared/cellTeachers.js';
+import { buildSheets, SHEET_DEFAULTS } from '../../../shared/sheetCalc.js';
+import { t } from '../T.jsx';
 import { useConfirm } from '../Confirm.jsx';
 import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 
@@ -151,7 +154,7 @@ function Generator({ P, input, onSaved }) {
             <TextInput label="시안 이름" placeholder="예: 2학기 자동 1" value={name} onChange={(e) => setName(e.currentTarget.value)} />
             <Button disabled={!name.trim()} onClick={save}>이 시안 저장</Button>
           </Group>
-          <ModeGrid input={input} cells={cand.cells} />
+          <ResultView input={input} cells={cand.cells} />
         </Stack>
       )}
     </Stack>
@@ -210,6 +213,45 @@ function Drafts({ P, input, list, tid, setTid, reload }) {
           </Group>
           <ModeGrid input={input} cells={d.cells} levels={d.levels} onSwap={swap} />
         </>
+      )}
+    </Stack>
+  );
+}
+
+// 자동 생성 결과 보기 — 엑셀 출력과 같은 계산(shared/sheetCalc.js)으로 교사별·특별실별·반별 표를 그린다.
+// 상태를 여기 두어 「다음 시안」으로 넘겨도 보던 보기·대상이 남는다.
+const VIEWS = ['teacher', 'room', 'class'];
+export function ResultView({ input, cells }) {
+  const [view, setView] = useState('teacher');
+  const [pick, setPick] = useState({});
+  const d = useMemo(() => ({ cells, classrooms: input.classrooms, subjects: input.subjects, teachers: input.teachers, rooms: input.rooms, weekdays: input.weekdays, periodConfig: input.periods }), [input, cells]);
+  const all = useMemo(() => buildSheets(d, SHEET_DEFAULTS, { view }), [d, view]);
+  // 고르기 목록: 시트 제목과 같은 순서 · 값은 대상 id (반별은 input.classrooms 순서)
+  const owners = view === 'teacher' ? d.teachers.filter((x) => cells.some((c) => hasTeacher(c, x.id))).sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+    : view === 'room' ? (d.rooms || []).filter((x) => cells.some((c) => Number(c.special_room_id) === Number(x.id))).sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+      : d.classrooms;
+  const label = (x) => (view === 'class' ? `${x.grade}학년 ${x.class_no}반` : x.name); // 문구-예외: 반 이름 꼴(출력 시트와 같은 글자)
+  const cur = owners.find((x) => String(x.id) === String(pick[view])) || owners[0];
+  const sheet = cur ? buildSheets(d, SHEET_DEFAULTS, { view, id: cur.id })[0] : null;
+  return (
+    <Stack gap="xs">
+      <Group>
+        <Select label={t('generate.result.view_label')} data={VIEWS.map((v) => ({ value: v, label: t(`generate.result.view_${v}`) }))} value={view} onChange={(v) => v && setView(v)} allowDeselect={false} w={130} data-testid="result-view" />
+        <Select label={t(`generate.result.pick_${view}`)} data={owners.map((x) => ({ value: String(x.id), label: label(x) }))} value={cur ? String(cur.id) : null} onChange={(v) => setPick({ ...pick, [view]: v })} allowDeselect={false} w={170} disabled={!cur} data-testid="result-pick" />
+      </Group>
+      {!sheet || !all.length ? <Text size="sm" c="dimmed">{view === 'class' ? '' : t(`generate.result.empty_${view}`)}</Text> : (
+        <div className="grid-scroll">
+          <Table withTableBorder withColumnBorders className="tt-grid" data-testid="result-table">
+            <Table.Thead><Table.Tr>{sheet.header.map((h, i) => <Table.Th key={i} ta="center">{h.text}</Table.Th>)}</Table.Tr></Table.Thead>
+            <Table.Tbody>
+              {sheet.rows.map((row, ri) => (
+                <Table.Tr key={ri}>
+                  {row.map((c, ci) => <Table.Td key={ci} ta="center" fw={ci === 0 ? 600 : undefined} style={{ whiteSpace: 'pre-line', minWidth: ci ? 74 : undefined }}><Text size="sm">{c.text}</Text></Table.Td>)}
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </div>
       )}
     </Stack>
   );
