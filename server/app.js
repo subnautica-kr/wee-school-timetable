@@ -14,6 +14,7 @@ import { auditRouter } from './routes/audit-log.js';
 import { rosterRouter } from './routes/roster.js';
 import { schoolRouter } from './routes/school.js';
 import { loadsRouter } from './routes/loads.js';
+import { schoolSetupRouter } from './routes/schoolSetup.js';
 import { pinsRouter } from './routes/pins.js';
 import { rulesRouter } from './routes/rules.js';
 import { timetablesRouter } from './routes/timetables.js';
@@ -121,6 +122,7 @@ export function createApp(pool, opts = {}) {
   app.use('/api/orgs/:orgId', orgRouter(pool));
   app.use('/api/orgs/:orgId', schoolRouter(pool));
   app.use('/api/orgs/:orgId', loadsRouter(pool));
+  app.use('/api/orgs/:orgId', schoolSetupRouter(pool));
   app.use('/api/orgs/:orgId', pinsRouter(pool));
   app.use('/api/orgs/:orgId', rulesRouter(pool));
   app.use('/api/orgs/:orgId', timetablesRouter(pool));
