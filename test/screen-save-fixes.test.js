@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { numOfText } from '../web/src/school/numberText.js';
-import { homeroomView } from '../web/src/admin/homeroomView.js';
+import { homeroomView, vacatedCounts, toggleId } from '../web/src/admin/homeroomView.js';
 import { smallSchool, seedPeople, seedStructure } from './fixtures/schools.js';
 import { setupSchoolEnv, HAS_DB } from './fixtures/school-env.js';
 
@@ -24,6 +24,17 @@ test('명단 반 열·담임 빠짐: 한 사람 두 반 · 반 없는 담임 · 
   assert.deepEqual(v.noClass, ['나']); // 전담·숨김은 제외
   assert.deepEqual(v.noTeacher, ['3-1']);
   assert.deepEqual(homeroomView([], []), { byMember: {}, noClass: [], noTeacher: [] });
+});
+
+test('명단 담임 빠짐: 휴직 줄은 보고 전출·퇴직 줄은 뺀다 · 담당 빈 건수 · 줄 고르기 토글', () => {
+  const rows = [{ id: 1, name: '가', duty: '담임', listStatus: '휴직' }, { id: 2, name: '나', duty: '담임', listStatus: '전출' }, { id: 3, name: '다', duty: '담임', listStatus: '숨김' }, { id: 4, name: '라', duty: '담임', listStatus: '사용' }];
+  assert.deepEqual(homeroomView(rows, []).noClass, ['가', '라']);
+  assert.deepEqual(vacatedCounts({ ok: true, status: { homeroom: 1, classes: 2 } }), { 담임: 1, 수업: 2 });
+  assert.equal(vacatedCounts({ ok: true, status: { homeroom: 0, classes: 0 } }), null);
+  assert.equal(vacatedCounts({ homeroom: 3, classes: 0, same: true }), null);
+  assert.deepEqual(vacatedCounts({ homeroom: 3, classes: 0 }), { 담임: 3, 수업: 0 });
+  const a = toggleId(new Set(), 5), b = toggleId(a, 5);
+  assert.ok(a.has(5) && !b.has(5) && a !== b);
 });
 
 test('시수 PATCH: 숫자가 오면 200 으로 바뀐다 · null 은 「없습니다」 404 가 아니라 입력 오류 400 · 없는 줄은 404', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {

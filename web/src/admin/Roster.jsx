@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Alert, Badge, Button, Code, FileButton, Group, Modal, Paper, Select, Stack, Table, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Badge, Button, Checkbox, FileButton, Group, Modal, Paper, Select, Stack, Table, Text, TextInput, Title } from '@mantine/core';
 import { api } from '../api.js';
 import { downloadTemp } from './csv.js';
+import { t } from '../T.jsx';
+import { 값이름 } from '../../../shared/text/index.js';
 import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 import { dutyOptions, roleLabel, useOrgConfig } from '../orgConfig.js';
 
 const ROLES = ['기관관리자', '교직원', '보기만'];
-import { homeroomView } from './homeroomView.js';
-const FIELDS = [['name', '이름'], ['loginId', 'ID'], ['role', '역할'], ['duty', '담임/전담']];
+import { homeroomView, toggleId, vacatedCounts } from './homeroomView.js';
+const STATUS_KEYS = ['사용', '휴직', '전출', '숨김']; // 저장 값 — 화면 낱말은 값이름 으로
+const FIELDS = [['name', '이름'], ['loginId', '아이디'], ['role', '역할'], ['duty', '담임/전담']];
 
 const download = downloadTemp;
 
@@ -17,7 +20,7 @@ export default function Roster({ orgId }) {
   const roleData = ROLES.map((r) => ({ value: r, label: roleLabel(cfg, r) })); // 권한 키는 그대로, 보이는 글자만
   const [rows, setRows] = useState([]);
   const [err, setErr] = useState('');
-  const [form, setForm] = useState({ name: '', loginId: '', role: '교직원', duty: null });
+  const [form, setForm] = useState({ name: '', birthDate: '', loginId: '', role: '교직원', duty: null });
   const [temp, setTemp] = useState(null); // { loginId, temp }
   const [imp, setImp] = useState(null); // 열 맞추기 상태
   const [result, setResult] = useState(null);
@@ -29,10 +32,19 @@ export default function Roster({ orgId }) {
   };
   useEffect(() => { load(); }, [orgId]);
   const hv = homeroomView(rows, classes);
+  const noClassText = hv.noClass.join(', ');
+  const noTeacherText = hv.noTeacher.join(', ');
   const [del, delBox] = useDelete();
+  const [busy, setBusy] = useState(false); // 서버에 보내는 동안 단추를 잠근다(두 번 눌림 막기)
+  const [note, setNote] = useState(null); // { 담임, 수업 } 담당이 빈 안내
+  const [sel, setSel] = useState(() => new Set()); // 여러 줄 고르기
+  const [bulkStatus, setBulkStatus] = useState(null);
+  const [bulkRes, setBulkRes] = useState(null);
+  const statusData = STATUS_KEYS.map((v) => ({ value: v, label: 값이름('membership.status', v) }));
   const run = async (fn) => {
-    setErr('');
-    try { await fn(); await load(); } catch (e) { setErr(e.message); }
+    if (busy) return;
+    setErr(''); setBusy(true);
+    try { await fn(); await load(); } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
 
   // 앵커 링크는 이 화면에서 내려받기가 안 돼(같은 주소 fetch 는 됨) 받아서 직접 저장한다
@@ -44,21 +56,31 @@ export default function Roster({ orgId }) {
     a.href = url; a.download = '명단 양식.xlsx'; a.click();
     URL.revokeObjectURL(url);
   });
-  const [idErr, setIdErr] = useState(''); // 중복 ID 안내는 ID 칸 바로 아래에
+  const [idErr, setIdErr] = useState(''); // 중복 아이디 안내는 아이디 칸 바로 아래에
   const add = (e) => {
     e.preventDefault();
     setIdErr('');
     run(async () => {
       let r;
-      try { r = await api('POST', base, { ...form, loginId: form.loginId || form.name }); } catch (x) {
-        if (x.status === 409 && /ID/.test(x.message)) { setIdErr(x.message); return; }
+      const body = { name: form.name, role: form.role, duty: form.duty, ...(form.birthDate.trim() ? { birthDate: form.birthDate.trim() } : {}), ...(form.loginId.trim() ? { loginId: form.loginId.trim() } : {}) };
+      try { r = await api('POST', base, body); } catch (x) {
+        if (x.status === 409 && form.loginId.trim()) { setIdErr(x.message); return; }
         throw x;
       }
-      setTemp({ name: form.name, loginId: r.loginId, temp: r.temp });
-      setForm({ name: '', loginId: '', role: '교직원', duty: null });
+      if (r.temp) setTemp({ name: form.name, loginId: r.loginId, temp: r.temp }); // 계정 없는 줄은 임시 비밀번호가 없다
+      setForm({ name: '', birthDate: '', loginId: '', role: '교직원', duty: null });
     });
   };
-  const patch = (m, body) => run(() => api('PATCH', `${base}/${m.id}`, body));
+  const patch = (m, body) => run(async () => {
+    const r = await api('PATCH', `${base}/${m.id}`, body);
+    setNote(vacatedCounts(r));
+  });
+  const bulkApply = () => run(async () => {
+    const r = await api('POST', `${base}/status`, { ids: [...sel], status: bulkStatus });
+    setNote(vacatedCounts(r));
+    setBulkRes({ changed: r.changed, failed: (r.results || []).filter((x) => !x.ok) });
+    setSel(new Set()); setBulkStatus(null);
+  });
   const post = (m, what) => run(async () => {
     const r = await api('POST', `${base}/${m.id}/${what}`);
     if (r.temp) setTemp({ name: m.name, loginId: r.loginId, temp: r.temp });
@@ -92,30 +114,42 @@ export default function Roster({ orgId }) {
 
   const actions = (m) => (
     <Group gap="xs" wrap="nowrap">
-      <Button size="xs" variant="default" onClick={() => post(m, 'reset-password')}>초기화</Button>
-      {m.state === '잠김' ? <Button size="xs" variant="default" onClick={() => post(m, 'unlock')}>잠금 해제</Button> : <Button size="xs" variant="default" onClick={() => post(m, 'lock')}>잠금</Button>}
-      <Button size="xs" variant="subtle" onClick={() => patch(m, { hidden: m.listStatus !== '숨김' })}>{m.listStatus === '숨김' ? '숨김 해제' : '숨김'}</Button>
-      <Button size="xs" variant="subtle" color="red" onClick={() => del(cascadeOpts(`/orgs/${orgId}`, 'membership', m.id, m.name, `${base}/${m.id}`, {
-        title: `「${m.name}」 이 학교에서 빼기`, yes: '이 학교에서 빼기', onDone: load,
-        lead: '이 학교의 명단에서만 뺍니다. 계정은 남아 있어 다른 학교에도 속해 있다면 그쪽은 그대로입니다. 시수표·시간표에 적힌 이 선생님 자리는 비워지고(줄과 칸은 남음), 담임 지정도 풀립니다.' }))}>이 학교에서 빼기</Button>
+      {m.hasAccount && <Button size="xs" variant="default" disabled={busy} onClick={() => post(m, 'reset-password')}>{t('roster.row.reset')}</Button>}
+      <Button size="xs" variant="subtle" color="red" disabled={busy} onClick={() => del(cascadeOpts(`/orgs/${orgId}`, 'membership', m.id, m.name, `${base}/${m.id}`, {
+        title: t('roster.del.title', { 이름: m.name }), yes: t('roster.del.yes'), onDone: load,
+        lead: t('roster.del.lead') + (hv.byMember[m.id] ? ` ${t('roster.del.has_duty')}` : '') }))}>{t('roster.row.delete')}</Button>
     </Group>
   );
-  const roleSel = (m) => <Select data={roleData} value={m.role} onChange={(v) => v && patch(m, { role: v })} allowDeselect={false} size="xs" w={120} />;
-  const stateBadge = (m) => <><Badge color={m.state === '잠김' ? 'red' : m.state === '사용 중' ? 'green' : 'yellow'}>{m.state}</Badge>{m.listStatus === '숨김' && <Badge ml={4} color="gray">숨김</Badge>}</>;
+  const statusSel = (m) => <Select aria-label={t('roster.row.status_pick')} data={statusData} value={m.listStatus} onChange={(v) => v && v !== m.listStatus && patch(m, { status: v })} allowDeselect={false} disabled={busy} size="xs" w={100} />;
+  const pickBox = (m) => <Checkbox aria-label={m.name} checked={sel.has(m.id)} onChange={() => setSel(toggleId(sel, m.id))} />;
+  const roleSel = (m) => <Select data={roleData} value={m.role} onChange={(v) => v && patch(m, { role: v })} allowDeselect={false} disabled={busy} size="xs" w={120} />;
+  const stateBadge = (m) => <Badge color={m.state === '잠김' ? 'red' : m.state === '사용 중' ? 'green' : m.hasAccount ? 'yellow' : 'gray'}>{m.state}</Badge>;
+  const loginCell = (m) => (m.hasAccount ? m.loginId : t('roster.col.no_account'));
+  const off = (m) => m.listStatus !== '사용';
 
   return (
     <Stack>
       {delBox}
-      <Title order={4}>명단 ({rows.length}명)</Title>
+      <Title order={4}>{t('roster.head.title', { 수: rows.length })}</Title>
       {err && <Alert color="red">{err}</Alert>}
+      {note && <Alert color="yellow" withCloseButton onClose={() => setNote(null)}>{t('roster.bulk.vacated', note)}</Alert>}
+      {bulkRes && (
+        <Alert color={bulkRes.failed.length ? 'orange' : 'green'} withCloseButton onClose={() => setBulkRes(null)}>
+          <Text size="sm">{t('roster.bulk.done', { 수: bulkRes.changed })}{bulkRes.failed.length > 0 && ` · ${t('roster.bulk.failed', { 수: bulkRes.failed.length })}`}</Text>
+          {bulkRes.failed.map((x) => <Text key={x.id} size="xs">{x.error}</Text>)}
+        </Alert>
+      )}
       <form onSubmit={add}>
-        <Group align="flex-end">
-          <TextInput label="이름" value={form.name} onChange={(e) => setForm({ ...form, name: e.currentTarget.value })} required />
-          <TextInput label="ID(비우면 이름)" value={form.loginId} error={idErr || undefined} onChange={(e) => { setIdErr(''); setForm({ ...form, loginId: e.currentTarget.value }); }} />
-          <Select label="역할" data={roleData} value={form.role} onChange={(v) => setForm({ ...form, role: v })} allowDeselect={false} w={130} />
-          <Select label="담임/전담" data={dutyOptions(cfg, form.duty)} value={form.duty} onChange={(v) => setForm({ ...form, duty: v })} clearable w={130} />
-          <Button type="submit">사람 추가</Button>
-        </Group>
+        <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0 }}>
+          <Group align="flex-end">
+            <TextInput label={t('roster.add.name')} value={form.name} onChange={(e) => setForm({ ...form, name: e.currentTarget.value })} required />
+            <TextInput label={t('roster.add.birth')} placeholder="2001-03-05" value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.currentTarget.value })} w={190} />
+            <TextInput label={t('roster.add.login_id')} value={form.loginId} error={idErr || undefined} onChange={(e) => { setIdErr(''); setForm({ ...form, loginId: e.currentTarget.value }); }} />
+            <Select label={t('roster.add.role')} data={roleData} value={form.role} onChange={(v) => setForm({ ...form, role: v })} allowDeselect={false} w={130} />
+            <Select label={t('roster.add.duty')} data={dutyOptions(cfg, form.duty)} value={form.duty} onChange={(v) => setForm({ ...form, duty: v })} clearable w={130} />
+            <Button type="submit" loading={busy}>{t('roster.add.submit')}</Button>
+          </Group>
+        </fieldset>
       </form>
       <Group>
         <Button variant="default" onClick={getTemplate}>엑셀 양식 내려받기</Button>
@@ -123,33 +157,44 @@ export default function Roster({ orgId }) {
       </Group>
 
       {(hv.noClass.length > 0 || hv.noTeacher.length > 0) && (
-        <Alert color="yellow" title="담임이 빠진 곳이 있습니다">
-          {hv.noClass.length > 0 && <Text size="sm">맡은 반이 없는 담임 교사: {hv.noClass.join(', ')}</Text>}
-          {hv.noTeacher.length > 0 && <Text size="sm">담임이 안 붙은 반: {hv.noTeacher.join(', ')}</Text>}
+        <Alert color="yellow" title={t('roster.head.gap')}>
+          {hv.noClass.length > 0 && <Text size="sm">{t('roster.head.no_class', { 이름: noClassText })}</Text>}
+          {hv.noTeacher.length > 0 && <Text size="sm">{t('roster.head.no_teacher', { 반: noTeacherText })}</Text>}
         </Alert>
+      )}
+      {sel.size > 0 && (
+        <Group>
+          <Text size="sm">{t('roster.bulk.picked', { 수: sel.size })}</Text>
+          <Select aria-label={t('roster.bulk.status')} placeholder={t('roster.bulk.status')} data={statusData} value={bulkStatus} onChange={setBulkStatus} size="xs" w={140} disabled={busy} />
+          <Button size="xs" disabled={!bulkStatus} loading={busy} onClick={bulkApply}>{t('roster.bulk.apply')}</Button>
+          <Button size="xs" variant="subtle" disabled={busy} onClick={() => { setSel(new Set()); setBulkStatus(null); }}>{t('roster.bulk.clear')}</Button>
+        </Group>
       )}
       <Stack gap="xs" hiddenFrom="sm">
         {rows.map((m) => (
-          <Paper key={m.id} withBorder p="sm" opacity={m.listStatus === '숨김' ? 0.5 : 1}>
+          <Paper key={m.id} withBorder p="sm" opacity={off(m) ? 0.5 : 1}>
             <Group justify="space-between" wrap="nowrap">
-              <Text fw={600}>{m.name}{m.duty && <Text span size="xs" c="dimmed"> {m.duty}</Text>}</Text>
+              <Group gap="xs" wrap="nowrap">{pickBox(m)}<Text fw={600}>{m.name}{m.duty && <Text span size="xs" c="dimmed"> {m.duty}</Text>}</Text></Group>
               <div>{stateBadge(m)}</div>
             </Group>
-            <Text size="xs" c="dimmed" mb={4}>ID {m.loginId} · 반 {hv.byMember[m.id] || '-'} · 마지막 로그인 {m.lastLogin ? new Date(m.lastLogin).toLocaleString('ko-KR') : '-'}</Text>
-            <Stack gap={6}>{roleSel(m)}<Group gap="xs">{actions(m)}</Group></Stack>
+            <Text size="xs" c="dimmed" mb={4}>{t('roster.col.login_id')} {loginCell(m)}{m.birthDate && ` · ${m.birthDate}`} · {t('roster.col.classes')} {hv.byMember[m.id] || '-'} · {t('roster.col.last')} {m.lastLogin ? new Date(m.lastLogin).toLocaleString('ko-KR') : '-'}</Text>
+            <Stack gap={6}>{roleSel(m)}{statusSel(m)}<Group gap="xs">{actions(m)}</Group></Stack>
           </Paper>
         ))}
       </Stack>
       <Table.ScrollContainer minWidth={700} visibleFrom="sm">
         <Table striped>
-          <Table.Thead><Table.Tr><Table.Th>이름</Table.Th><Table.Th>ID</Table.Th><Table.Th>반</Table.Th><Table.Th>역할</Table.Th><Table.Th>상태</Table.Th><Table.Th>마지막 로그인</Table.Th><Table.Th /></Table.Tr></Table.Thead>
+          <Table.Thead><Table.Tr><Table.Th w={36}><Checkbox aria-label={t('roster.bulk.pick_all')} checked={rows.length > 0 && sel.size === rows.length} indeterminate={sel.size > 0 && sel.size < rows.length} onChange={() => setSel(sel.size === rows.length ? new Set() : new Set(rows.map((m) => m.id)))} /></Table.Th><Table.Th>{t('roster.col.name')}</Table.Th><Table.Th>{t('roster.col.birth')}</Table.Th><Table.Th>{t('roster.col.login_id')}</Table.Th><Table.Th>{t('roster.col.classes')}</Table.Th><Table.Th>{t('roster.col.role')}</Table.Th><Table.Th>{t('roster.col.status')}</Table.Th><Table.Th /><Table.Th>{t('roster.col.last')}</Table.Th><Table.Th /></Table.Tr></Table.Thead>
           <Table.Tbody>
             {rows.map((m) => (
-              <Table.Tr key={m.id} opacity={m.listStatus === '숨김' ? 0.5 : 1}>
+              <Table.Tr key={m.id} opacity={off(m) ? 0.5 : 1}>
+                <Table.Td>{pickBox(m)}</Table.Td>
                 <Table.Td>{m.name}{m.duty && <Text span size="xs" c="dimmed"> {m.duty}</Text>}</Table.Td>
-                <Table.Td>{m.loginId}</Table.Td>
+                <Table.Td>{m.birthDate || t('roster.col.no_account')}</Table.Td>
+                <Table.Td>{loginCell(m)}</Table.Td>
                 <Table.Td>{hv.byMember[m.id] || '-'}</Table.Td>
                 <Table.Td>{roleSel(m)}</Table.Td>
+                <Table.Td>{statusSel(m)}</Table.Td>
                 <Table.Td>{stateBadge(m)}</Table.Td>
                 <Table.Td>{m.lastLogin ? new Date(m.lastLogin).toLocaleString('ko-KR') : '-'}</Table.Td>
                 <Table.Td>{actions(m)}</Table.Td>
@@ -159,13 +204,13 @@ export default function Roster({ orgId }) {
         </Table>
       </Table.ScrollContainer>
 
-      <Modal opened={!!temp} onClose={() => setTemp(null)} title="임시 비밀번호(한 번만 보입니다)">
+      <Modal opened={!!temp} onClose={() => setTemp(null)} title={t('roster.temp.title')}>
         <Stack>
-          <Text>ID <Code>{temp?.loginId}</Code></Text>
-          <Text>임시 비밀번호 <Code fz="lg">{temp?.temp}</Code></Text>
-          <Alert color="yellow">닫으면 다시 볼 수 없습니다. 본인에게 전한 뒤 닫으세요. 본인은 첫 로그인 때 바꿉니다.</Alert>
-          <Button variant="default" onClick={() => download('ID·임시 비밀번호.csv', [{ ok: true, name: temp.name, loginId: temp.loginId, temp: temp.temp }])}>이번 목록 내려받기(엑셀/CSV)</Button>
-          <Button onClick={() => setTemp(null)}>닫기</Button>
+          <Text>{t('roster.temp.login', { 아이디: temp?.loginId ?? '' })}</Text>
+          <Text>{t('roster.temp.pw', { 비밀번호: temp?.temp ?? '' })}</Text>
+          <Alert color="yellow">{t('roster.temp.warn')}</Alert>
+          <Button variant="default" onClick={() => download(t('roster.temp.file'), [{ ok: true, name: temp.name, loginId: temp.loginId, temp: temp.temp }])}>{t('roster.temp.download')}</Button>
+          <Button onClick={() => setTemp(null)}>{t('roster.temp.close')}</Button>
         </Stack>
       </Modal>
 
@@ -205,8 +250,8 @@ export default function Roster({ orgId }) {
       <Modal opened={!!result} onClose={() => setResult(null)} title={`올린 결과 — 만듦 ${result?.made} · 못 읽음 ${result?.failed}`} size="xl">
         {result && (
           <Stack>
-            <Alert color="yellow">임시 비밀번호는 저장되지 않습니다. 지금 「ID·임시 비밀번호 목록」을 내려받으세요. 창을 닫으면 다시 볼 수 없습니다.</Alert>
-            <Button onClick={() => download('ID·임시 비밀번호.csv', result.results)} disabled={!result.made}>이번 목록 내려받기(엑셀/CSV)</Button>
+            <Alert color="yellow">임시 비밀번호는 저장되지 않습니다. 지금 「아이디·임시 비밀번호 목록」을 내려받으세요. 창을 닫으면 다시 볼 수 없습니다.</Alert>
+            <Button onClick={() => download(t('roster.temp.file'), result.results)} disabled={!result.made}>이번 목록 내려받기(엑셀/CSV)</Button>
             <Table.ScrollContainer minWidth={500} mah={320}>
               <Table>
                 <Table.Tbody>
