@@ -69,11 +69,12 @@ test('세션', { skip: !HAS_DB && 'DB 없음' }, async (t) => {
     assert.equal((await admin.call('PATCH', `${oA}/roster/${f.users.dual.mid}`, { role: '보기만' })).status, 200);
     assert.equal(await alive(d), false);
 
-    // 잠금 — staffA 는 비번을 바꿨으니 새 비번으로
+    // 재직 상태 전출(로그인 안 되는 상태) — staffA 는 비번을 바꿨으니 새 비번으로 · 잠금 길은 걷었다(T-1302b①)
     const s = f.client();
     assert.equal((await s.login('staffA', f.orgA, NEW_PW)).status, 200);
-    assert.equal((await admin.call('POST', `${oA}/roster/${f.users.staffA.mid}/lock`)).status, 200);
+    assert.equal((await admin.call('POST', `${oA}/roster/status`, { ids: [Number(f.users.staffA.mid)], status: '전출' })).status, 200);
     assert.equal(await alive(s), false);
+    assert.equal((await admin.call('POST', `${oA}/roster/status`, { ids: [Number(f.users.staffA.mid)], status: '사용' })).status, 200);
   });
 
   await t.test('시스템 관리자가 기관을 멈추면 그 기관의 열린 세션도 죽는다', async () => {

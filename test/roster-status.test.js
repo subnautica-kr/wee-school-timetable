@@ -19,7 +19,7 @@ test('명단 서버: 계정 없는 줄 · 재직 상태 · 엑셀 아이디', { 
 
   try {
     let bare;
-    await tt.test('계정 없는 줄 넣기 → 「계정 없음」 · 잠그기·비밀번호 초기화 404', async () => {
+    await tt.test('계정 없는 줄 넣기 → 「계정 없음」 · 잠그기(걷은 길)·비밀번호 초기화 404', async () => {
       const r = await call('POST', `${P}/roster`, { name: '줄만', duty: '전담', birthDate: '1980-01-02' });
       assert.equal(r.status, 201, JSON.stringify(r.json));
       assert.equal(r.json.loginId, null);

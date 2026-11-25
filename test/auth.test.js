@@ -68,8 +68,10 @@ test('로그인 흐름', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (
     const list = (await a.call('GET', `/api/orgs/${school}/roster`)).json;
     const row = list.find((x) => x.loginId === victim);
     assert.equal(row.state, '잠김');
-    assert.equal((await a.call('POST', `/api/orgs/${school}/roster/${row.id}/unlock`)).status, 200);
-    assert.equal((await c.login(school, victim)).status, 200);
+    assert.equal((await a.call('POST', `/api/orgs/${school}/roster/${row.id}/unlock`)).status, 404); // 잠금 풂 길은 걷었다(T-1302b①)
+    const reset = await a.call('POST', `/api/orgs/${school}/roster/${row.id}/reset-password`);
+    assert.equal(reset.status, 200);
+    assert.equal((await c.login(school, victim, reset.json.temp)).status, 200);
   });
 
   await t.test('첫 로그인 강제 변경: 바꾸기 전엔 기관 경로 403, 흔한 비밀번호 400, 바꾸면 열림 · 옛 비밀번호 불가', async () => {

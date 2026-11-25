@@ -1,6 +1,11 @@
 import argon2 from 'argon2';
 import { tempPassword } from './passwords.js';
-import { ROLE } from '../shared/codes.js';
+import { ROLE, DORMANT_REASON, UNLINKED_REASON } from '../shared/codes.js';
+import { audit, killSessions } from './audit.js';
+import { registerCleanup } from './cleanup.js';
+import { withTx } from './link.js';
+import { notify } from './notify.js';
+import { t } from '../shared/text/index.js';
 
 // 해시 강도 한 곳(OWASP 하한). verify 는 해시 안의 값으로 읽어 예전 해시도 통과한다.
 export const ARGON = { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 };
@@ -52,3 +57,57 @@ export async function resetPassword(db, userId) {
   );
   return temp;
 }
+
+// 계정만 만든다(T-1302b① 「계정 만들어 주기」 — 계정 없는 줄에 이어 붙일 때). 연결은 부른 쪽이 linkAccount 로.
+// 반환: { userId, temp } 또는 { error: '<문구 키>' }
+export async function createUserOnly(db, { name, loginId, birthDate = null }) {
+  const temp = tempPassword();
+  const ins = await db.query(
+    `INSERT INTO app_user (name, login_id, password_hash, must_change_password, birth_date) VALUES ($1,$2,$3,TRUE,$4)
+     ON CONFLICT (lower(login_id)) DO NOTHING RETURNING id`,
+    [name, loginId, await argon2.hash(temp, ARGON), birthDate],
+  );
+  if (!ins.rows[0]) return { error: 'roster.err.login_taken' };
+  return { userId: Number(ins.rows[0].id), temp };
+}
+
+// 「연결 안 된 계정」 묶음에서 학교 밖으로 내보내기(T-1302b①) — 손으로 누를 때와 30일 자동이 같이 쓴다.
+// 묶음 줄을 닫고, 다른 소속(지우지 않은 연결 줄)이 없으면 휴면(사유 removed) · 세션 끊기 · 감사.
+// 반환 { ok, userId, dormant } 또는 { error }
+export async function releaseUnlinked(db, { orgId, userId, byUserId = null, auto = false }) {
+  const row = (await db.query(
+    `UPDATE unlinked_account SET resolved_at = now()
+      WHERE org_id = $1 AND user_id = $2 AND reason = $3 AND resolved_at IS NULL RETURNING id`,
+    [orgId, userId, UNLINKED_REASON.UNLINKED],
+  )).rows;
+  if (!row.length) return { error: 'roster.err.unlinked_not_found' };
+  const other = (await db.query(`SELECT 1 FROM membership WHERE user_id = $1 AND deleted_at IS NULL LIMIT 1`, [userId])).rows[0];
+  if (!other) {
+    await db.query(
+      `UPDATE app_user SET dormant_at = COALESCE(dormant_at, now()), dormant_reason = COALESCE(dormant_reason, $2) WHERE id = $1`,
+      [userId, DORMANT_REASON.REMOVED],
+    );
+  }
+  await killSessions(db, userId);
+  await audit(db, {
+    orgId, userId: byUserId, action: 'roster.unlinked-release', table: 'app_user', rowId: userId, after: { auto, dormant: !other },
+  });
+  return { ok: true, userId: Number(userId), dormant: !other };
+}
+
+// 30일 동안 묶음에 그대로 있으면 저절로 내보내고 학교 소식 한 줄(기관 관리자에게 정리 의무를 지우지 않는다)
+registerCleanup('unlinked-30d', async (db, now) => {
+  const due = (await db.query(
+    `SELECT ua.org_id, ua.user_id, u.name FROM unlinked_account ua JOIN app_user u ON u.id = ua.user_id
+      WHERE ua.reason = $1 AND ua.resolved_at IS NULL AND ua.expires_at <= $2`,
+    [UNLINKED_REASON.UNLINKED, now],
+  )).rows;
+  let n = 0;
+  for (const d of due) {
+    const r = await withTx(db, (c) => releaseUnlinked(c, { orgId: d.org_id, userId: d.user_id, auto: true }));
+    if (r.error) continue;
+    await notify(db, { orgId: d.org_id, kind: 'roster_unlinked_released', text: t('roster.notice_unlinked.released', { 이름: d.name ?? '' }) });
+    n++;
+  }
+  return n;
+});
