@@ -7,6 +7,9 @@ import { getRuleLevels } from '../rules.js';
 import { currentTerm } from './school.js';
 import { audit, killSessions } from '../audit.js';
 import { inTx, removeWithCascade } from '../cascade.js';
+import { EXCEL_SPECS, applyPlans, makeWorkbook, markErrors, planSheet, readWorkbook, undoExcel } from '../export/import.js';
+import { fail } from '../fail.js';
+import { t } from '../../shared/text/index.js';
 import { CEIL, dutyFromText, dutyKnown, dutyWarnings, limitWarnings, loadConfig, withWarnings } from '../orgConfig.js';
 
 // 명단 탭 — 줄 = 계정. 관리자만(school.manage). 모든 쿼리에 membership.org_id = req.orgId.
@@ -195,6 +198,67 @@ export function rosterRouter(pool) {
     } catch (e) {
       next(e);
     }
+  });
+
+  // ── 엑셀 바닥(T-1301b③) — 명단·시수표·고정금지 시트 한 파일. 내려받기 → 미리 보기(쓰지 않음) → 반영(트랜잭션) → 되돌리기 ──
+  const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const sendXlsx = (res, name, buf) => {
+    res.set('Content-Type', XLSX_MIME);
+    res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.send(buf);
+  };
+  const excelErr = (res, next, e) => (e.status && e.expose ? res.status(e.status).json({ error: e.message, code: e.code }) : next(e));
+  // 올린 파일에서 시트가 있는 스펙만 계획으로 만든다(시트가 하나도 없으면 400)
+  const plansOf = async (db, orgId, buf) => {
+    const book = await readWorkbook(buf);
+    const specs = EXCEL_SPECS.filter((s) => book[s.sheet]);
+    if (!specs.length) throw Object.assign(new Error(t('school.excel_err.no_sheet', { 시트: EXCEL_SPECS.map((s) => s.sheet).join('·') })), { status: 400, expose: true, code: 'school.excel_err.no_sheet' });
+    const plans = [];
+    for (const spec of specs) plans.push(await planSheet(db, orgId, spec, book[spec.sheet]));
+    return plans;
+  };
+  const rawXlsx = express.raw({ type: () => true, limit: '5mb' });
+
+  r.get('/excel', async (req, res, next) => {
+    try {
+      const data = {};
+      for (const spec of EXCEL_SPECS) data[spec.name] = await spec.rows(pool, req.orgId, await spec.context(pool, req.orgId));
+      sendXlsx(res, t('school.excel.file_school'), await makeWorkbook(EXCEL_SPECS, data));
+    } catch (e) { next(e); }
+  });
+
+  r.post('/excel/preview', rawXlsx, async (req, res, next) => {
+    try {
+      if (!Buffer.isBuffer(req.body) || !req.body.length) return fail(res, 400, 'school.excel_err.empty_file');
+      const plans = await plansOf(pool, req.orgId, req.body);
+      const hasErr = plans.some((p) => p.errors.length);
+      res.json({
+        sheets: plans.map((p) => ({ sheet: p.sheet, name: p.spec.name, removable: p.spec.removable, add: p.add.map((x) => x.line), change: p.change.map((x) => ({ line: x.line, id: x.id })), remove: p.remove, same: p.same.length, errors: p.errors })),
+        ...(hasErr ? { marked: (await markErrors(req.body, plans)).toString('base64'), markedName: t('school.excel.file_marked') } : {}),
+      });
+    } catch (e) { excelErr(res, next, e); }
+  });
+
+  // remove: 「all」 또는 지울 시트 이름을 쉼표로(?remove=시수표,고정·금지). 오류 줄은 건너뛰고 나머지만 넣는다.
+  r.post('/excel/apply', rawXlsx, async (req, res, next) => {
+    try {
+      if (!Buffer.isBuffer(req.body) || !req.body.length) return fail(res, 400, 'school.excel_err.empty_file');
+      const rm = String(req.query.remove ?? '');
+      const remove = rm === 'all' ? true : rm.split(',').filter(Boolean);
+      const out = await inTx(pool, async (c) => applyPlans(c, req.orgId, req.session.userId, await plansOf(c, req.orgId, req.body), { remove }));
+      await audit(pool, { ...me(req), action: 'roster.excel', table: 'delete_batch', rowId: out.batchId, after: { added: out.added, changed: out.changed, removed: out.removed, failed: out.failed.length } });
+      res.json(out);
+    } catch (e) { excelErr(res, next, e); }
+  });
+
+  r.post('/excel/undo', async (req, res, next) => {
+    try {
+      const p = z.object({ batchId: z.coerce.number().int().positive() }).safeParse(req.body);
+      if (!p.success) return fail(res, 400, 'school.excel_err.no_batch');
+      const out = await inTx(pool, (c) => undoExcel(c, req.orgId, p.data.batchId));
+      await audit(pool, { ...me(req), action: 'roster.excel-undo', table: 'delete_batch', rowId: p.data.batchId, after: { undone: out.undone, skipped: out.skipped.length } });
+      res.json(out);
+    } catch (e) { excelErr(res, next, e); }
   });
 
   // ── 엑셀 ─────────────────────────────────────────
