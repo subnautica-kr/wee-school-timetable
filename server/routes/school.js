@@ -351,6 +351,7 @@ export function schoolRouter(pool) {
   // ── 특별실 묶음(015) — 「과학실 아무 방」. 시수표 줄이 방 하나 대신 묶음을 가리키면 생성기가 비는 방 하나를 고른다 ──
   const groupIn = z.object({ name: z.string().trim().min(1).max(40), room_ids: z.array(id).max(50) });
   const GSEL = `SELECT g.id, g.name, COALESCE((SELECT array_agg(s.id ORDER BY s.id) FROM special_room s WHERE s.id = ANY(g.room_ids) AND s.org_id = g.org_id AND s.deleted_at IS NULL), '{}') AS room_ids FROM special_room_group g`;
+  const gq = (sql) => sql.replaceAll('{GSEL}', GSEL);
   const groupOut = (g) => ({ ...g, id: Number(g.id), room_ids: g.room_ids.map(Number) });
   // 살아 있는 이 기관의 방만 남긴다 — 못 찾은 번호는 버리고 알림
   const liveRooms = async (orgId, ids) => (await pool.query(`SELECT id FROM special_room WHERE org_id = $1 AND deleted_at IS NULL AND id = ANY($2::bigint[]) ORDER BY id`, [orgId, ids])).rows.map((x) => Number(x.id));
@@ -359,7 +360,7 @@ export function schoolRouter(pool) {
     ...(got.length === 0 ? [{ key: 'group_empty', msg: t('school.special.warn_group_empty') }] : got.length === 1 ? [{ key: 'group_one', msg: t('school.special.warn_group_one') }] : []),
   ];
   r.get('/special-room-groups', view, guard(async (req, res) => {
-    const { rows } = await pool.query(`${GSEL} WHERE g.org_id = $1 AND g.deleted_at IS NULL ORDER BY g.id`, [req.orgId]);
+    const { rows } = await pool.query(gq(`{GSEL} WHERE g.org_id = $1 AND g.deleted_at IS NULL ORDER BY g.id`), [req.orgId]);
     res.json(rows.map(groupOut));
   }));
   r.post('/special-room-groups', manage, guard(async (req, res) => {
@@ -367,7 +368,7 @@ export function schoolRouter(pool) {
     if (!p.success) return bad(res);
     const got = await liveRooms(req.orgId, p.data.room_ids);
     const ins = await pool.query(`INSERT INTO special_room_group (org_id, name, room_ids) VALUES ($1,$2,$3) RETURNING id`, [req.orgId, p.data.name, got]);
-    const { rows } = await pool.query(`${GSEL} WHERE g.id = $1`, [ins.rows[0].id]);
+    const { rows } = await pool.query(gq(`{GSEL} WHERE g.id = $1`), [ins.rows[0].id]);
     await audit(pool, { orgId: req.orgId, userId: req.session.userId, action: 'special_room_group.create', table: 'special_room_group', rowId: rows[0].id, after: { name: p.data.name } });
     res.status(201).json(withWarnings(groupOut(rows[0]), groupWarn(p.data.room_ids, got)));
   }));
@@ -381,7 +382,7 @@ export function schoolRouter(pool) {
       `UPDATE special_room_group SET name = COALESCE($3, name), room_ids = COALESCE($4::bigint[], room_ids) WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL RETURNING id`,
       [gid.data, req.orgId, p.data.name ?? null, got]);
     if (!up.rows[0]) return notFound(res);
-    const { rows } = await pool.query(`${GSEL} WHERE g.id = $1`, [gid.data]);
+    const { rows } = await pool.query(gq(`{GSEL} WHERE g.id = $1`), [gid.data]);
     await audit(pool, { orgId: req.orgId, userId: req.session.userId, action: 'special_room_group.update', table: 'special_room_group', rowId: gid.data, after: { name: rows[0].name } });
     res.json(withWarnings(groupOut(rows[0]), got ? groupWarn(p.data.room_ids, got) : []));
   }));
