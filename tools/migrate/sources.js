@@ -180,9 +180,10 @@ export function backupToSource(b) {
   const users = new Map(live(T.app_user).map((u) => [String(u.id), u]));
   const people = [];
   for (const m of live(T.membership)) {
+    // 이름은 줄 이름(013~)을 먼저, 없으면(옛 백업) 계정 이름. 계정 없는 줄도 옮긴다(아이디만 없다)
     const u = users.get(String(m.user_id));
-    if (!u || m.role === '시스템관리자') continue;
-    people.push({ key: `m:${m.id}`, name: u.name, loginId: u.login_id, role: m.role, duty: m.duty ?? null, status: m.status });
+    if (m.role === '시스템관리자' || (m.user_id == null ? !m.name : !u)) continue;
+    people.push({ key: `m:${m.id}`, name: m.name ?? u.name, loginId: u?.login_id ?? null, role: m.role, duty: m.duty ?? null, status: m.status });
   }
   const classes = inTerm(T.classroom).map((c) => ({ key: `c:${c.id}`, grade: c.grade, class_no: c.class_no, student_count: c.student_count ?? null, homeroomKey: c.homeroom_membership_id ? `m:${c.homeroom_membership_id}` : null, label: `${c.grade}-${c.class_no}` }));
   const subjects = live(T.subject).map((s) => ({ key: `s:${s.id}`, name: s.name, short_name: s.short_name ?? null, color: s.color ?? null }));

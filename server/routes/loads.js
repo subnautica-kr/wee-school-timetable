@@ -75,7 +75,7 @@ export function loadsRouter(pool) {
     const t = await currentTerm(pool, req.orgId);
     const lines = (await pool.query(`SELECT ${COLS} FROM teaching_load WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL ORDER BY id`, [req.orgId, t.id])).rows;
     const teachers = (await pool.query(
-      `SELECT m.id AS membership_id, u.name FROM membership m JOIN app_user u ON u.id = m.user_id WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.status = '사용' AND m.duty IS NOT NULL`,
+      `SELECT m.id AS membership_id, m.name FROM membership m WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.status = '사용' AND m.duty IS NOT NULL`,
       [req.orgId],
     )).rows;
     const levels = await getRuleLevels(pool, req.orgId);
@@ -119,7 +119,7 @@ export function loadsRouter(pool) {
       const classrooms = (await pool.query(`SELECT id, grade, class_no FROM classroom WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL`, [req.orgId, t.id])).rows;
       const subjects = (await pool.query(`SELECT id, name, short_name FROM subject WHERE org_id = $1 AND deleted_at IS NULL`, [req.orgId])).rows;
       const people = (await pool.query(
-        `SELECT m.id AS membership_id, u.name, u.login_id FROM membership m JOIN app_user u ON u.id = m.user_id WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.status = '사용'`,
+        `SELECT m.id AS membership_id, m.name, u.login_id FROM membership m LEFT JOIN app_user u ON u.id = m.user_id WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.status = '사용'`,
         [req.orgId],
       )).rows;
       const rows = parseLoadRows(table, { people, classrooms, subjects });

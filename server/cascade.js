@@ -63,7 +63,7 @@ export const RELATIONS = {
 // 대상 자체: 표 · 보이는 이름 · 학기(보관 학기 거부용)
 const TARGET = {
   classroom: { table: 'classroom', name: `x.grade || '학년 ' || x.class_no || '반'`, term: 'x.term_id' },
-  membership: { table: 'membership', name: `(SELECT u.name FROM app_user u WHERE u.id = x.user_id)`, term: 'NULL::bigint' },
+  membership: { table: 'membership', name: 'x.name', term: 'NULL::bigint' }, // 이름은 줄에 있다(계정 없는 줄도 이름표가 선다)
   subject: { table: 'subject', name: 'x.name', term: 'NULL::bigint' },
   special_room: { table: 'special_room', name: 'x.name', term: 'NULL::bigint' },
   timetable: { table: 'timetable', name: 'x.name', term: 'x.term_id' },
@@ -223,6 +223,15 @@ export async function restoreBatch(client, orgId, batchId) {
     // 행: 이 묶음이 지운 시각(같은 트랜잭션의 now() = 묶음 created_at)과 같은 것만 푼다
     const byTable = new Map();
     for (const it of items.filter((x) => x.column_name == null)) byTable.set(it.table_name, [...(byTable.get(it.table_name) ?? []), it.row_id]);
+    // 명단 줄: 지운 사이 같은 계정이 이 기관에 새 줄로 들어왔으면 되살리는 줄의 계정 칸을 비운다(줄은 계정 없는 줄로 선다)
+    if (byTable.has('membership')) {
+      await client.query(
+        `UPDATE membership x SET user_id = NULL
+          WHERE x.id = ANY($1::bigint[]) AND x.org_id = $2 AND x.user_id IS NOT NULL AND x.deleted_at = (SELECT created_at FROM delete_batch WHERE id = $3)
+            AND EXISTS (SELECT 1 FROM membership o WHERE o.user_id = x.user_id AND o.org_id = x.org_id AND o.deleted_at IS NULL AND o.id <> x.id)`,
+        [byTable.get('membership'), orgId, b.id],
+      );
+    }
     for (const [table, ids] of byTable) {
       if (!TABLES.has(table)) continue;
       // 시각은 SQL 안에서 비교한다(JS Date 는 밀리초까지라 마이크로초가 잘린다)

@@ -7,6 +7,7 @@ import { requireLogin } from '../guard.js';
 import { passwordProblem } from '../passwords.js';
 import { audit, killSessions } from '../audit.js';
 import { ARGON } from '../accounts.js';
+import { MEMBER_STATUS_LOGIN } from '../../shared/codes.js';
 
 const MAX_FAILS = 10;
 const LOCK_MINUTES = 15;
@@ -73,10 +74,10 @@ export function authRouter(pool, opts = {}) {
         `SELECT u.id, u.name, u.password_hash, u.must_change_password, u.status, u.failed_count, u.locked_until,
                 m.role, m.org_id, o.name AS org_name, o.status AS org_status
            FROM app_user u
-           JOIN membership m ON m.user_id = u.id AND ($1::bigint IS NULL OR m.org_id = $1) AND m.deleted_at IS NULL AND m.status = '사용'
+           JOIN membership m ON m.user_id = u.id AND ($1::bigint IS NULL OR m.org_id = $1) AND m.deleted_at IS NULL AND m.status = ANY($3::text[])
            JOIN org o ON o.id = m.org_id AND o.deleted_at IS NULL
           WHERE lower(u.login_id) = lower($2) AND u.deleted_at IS NULL ORDER BY (o.kind = '상위 기관'), o.name`,
-        [orgId ?? null, loginId],
+        [orgId ?? null, loginId, MEMBER_STATUS_LOGIN],
       );
       const u = rows[0];
       const cands = rows.filter((x) => x.org_status === '사용');
@@ -134,8 +135,8 @@ export function authRouter(pool, opts = {}) {
     try {
       const { rows } = await pool.query(
         `SELECT o.id AS "orgId", o.name, m.role FROM membership m JOIN org o ON o.id = m.org_id AND o.deleted_at IS NULL AND o.status = '사용'
-          WHERE m.user_id = $1 AND m.deleted_at IS NULL AND m.status = '사용' ORDER BY (o.kind = '상위 기관'), o.name`,
-        [req.session.userId],
+          WHERE m.user_id = $1 AND m.deleted_at IS NULL AND m.status = ANY($2::text[]) ORDER BY (o.kind = '상위 기관'), o.name`,
+        [req.session.userId, MEMBER_STATUS_LOGIN],
       );
       res.json({ current: req.session.orgId, items: rows.map((x) => ({ ...x, orgId: Number(x.orgId) })) });
     } catch (e) {
@@ -150,8 +151,8 @@ export function authRouter(pool, opts = {}) {
       if (!p.success) return res.status(400).json({ error: '입력을 확인해 주세요' });
       const { rows } = await pool.query(
         `SELECT m.role FROM membership m JOIN org o ON o.id = m.org_id AND o.deleted_at IS NULL AND o.status = '사용'
-          WHERE m.user_id = $1 AND m.org_id = $2 AND m.deleted_at IS NULL AND m.status = '사용'`,
-        [req.session.userId, p.data.orgId],
+          WHERE m.user_id = $1 AND m.org_id = $2 AND m.deleted_at IS NULL AND m.status = ANY($3::text[])`,
+        [req.session.userId, p.data.orgId, MEMBER_STATUS_LOGIN],
       );
       if (!rows[0]) return res.status(404).json({ error: '없습니다' });
       const keep = { userId: req.session.userId, name: req.session.name, mustChange: req.session.mustChange, maxAge: req.session.cookie.maxAge };

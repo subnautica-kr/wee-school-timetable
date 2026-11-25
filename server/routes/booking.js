@@ -32,7 +32,7 @@ export function bookingRouter(pool) {
        WHERE c.org_id = $1 AND c.timetable_id = $2 AND c.weekday = $3 AND c.period = $4 AND c.deleted_at IS NULL AND c.special_room_id IS NOT NULL AND ($5::bigint IS NULL OR c.special_room_id = $5)`, [orgId, tt.id, wd, period, rid]) : [];
     const locks = await q(`SELECT special_room_id AS room, note FROM room_lock WHERE org_id = $1 AND weekday = $2 AND period = $3 AND deleted_at IS NULL AND ($4::bigint IS NULL OR special_room_id = $4)`, [orgId, wd, period, rid]);
     const books = await q(
-      `SELECT b.id, b.special_room_id AS room, b.membership_id, u.name FROM booking b JOIN membership m ON m.id = b.membership_id JOIN app_user u ON u.id = m.user_id
+      `SELECT b.id, b.special_room_id AS room, b.membership_id, m.name FROM booking b JOIN membership m ON m.id = b.membership_id
        WHERE b.org_id = $1 AND b.on_date = $2::date AND b.period = $3 AND b.deleted_at IS NULL AND ($4::bigint IS NULL OR b.special_room_id = $4)`, [orgId, date, period, rid]);
     return { lessons, locks, books };
   }
@@ -51,8 +51,8 @@ export function bookingRouter(pool) {
     return applyLevels(levels, found);
   }
 
-  const BSEL = `SELECT b.id, to_char(b.on_date,'YYYY-MM-DD') AS on_date, b.period, b.special_room_id, s.name AS room_name, b.membership_id, u.name AS who, b.classroom_id, c.grade, c.class_no
-    FROM booking b JOIN special_room s ON s.id = b.special_room_id JOIN membership m ON m.id = b.membership_id JOIN app_user u ON u.id = m.user_id LEFT JOIN classroom c ON c.id = b.classroom_id`;
+  const BSEL = `SELECT b.id, to_char(b.on_date,'YYYY-MM-DD') AS on_date, b.period, b.special_room_id, s.name AS room_name, b.membership_id, m.name AS who, b.classroom_id, c.grade, c.class_no
+    FROM booking b JOIN special_room s ON s.id = b.special_room_id JOIN membership m ON m.id = b.membership_id LEFT JOIN classroom c ON c.id = b.classroom_id`;
 
   r.get('/bookings', own, async (req, res, next) => {
     try {

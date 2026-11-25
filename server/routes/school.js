@@ -346,8 +346,8 @@ export function schoolRouter(pool) {
   // ── 「전담·비교과」 탭: 담당 구분이 전담·비교과인 소속 ──
   r.get('/specialists', view, guard(async (req, res) => {
     const { rows } = await pool.query(
-      `SELECT m.id AS membership_id, u.name, m.duty FROM membership m JOIN app_user u ON u.id = m.user_id
-       WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.status = '사용' AND m.role IN ('기관관리자','교직원') ORDER BY (m.duty IS NOT NULL AND m.duty <> '담임') DESC, u.name`,
+      `SELECT m.id AS membership_id, m.name, m.duty FROM membership m
+       WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.status = '사용' AND m.role IN ('기관관리자','교직원') ORDER BY (m.duty IS NOT NULL AND m.duty <> '담임') DESC, m.name`,
       [req.orgId],
     );
     res.json(rows);
