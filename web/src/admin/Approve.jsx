@@ -74,7 +74,7 @@ export default function Approve({ orgId, onCount, onChanged }) {
     if (it.warnings.length) setAsk({ item: it, extra, warnings: it.warnings.map((w) => w.text) });
     else approve(it, extra);
   };
-  const useOther = async (it) => {
+  const approveAsOther = async (it) => {
     const uid = Number(other[it.userId]);
     if (!uid) return;
     setErr(''); setMsg(''); setBusy(true);
@@ -166,7 +166,7 @@ export default function Approve({ orgId, onCount, onChanged }) {
                 <Group align="flex-end">
                   <Select size="xs" w={260} label={t('roster.approve.other_pick')} placeholder={t('roster.approve.other_none_pick')} data={accOpts}
                     value={other[it.userId] ?? null} onChange={(v) => setOne(other, setOther, it.userId, v)} />
-                  <Button size="xs" variant="light" disabled={!other[it.userId]} loading={busy} onClick={() => useOther(it)}>{t('roster.approve.use_other')}</Button>
+                  <Button size="xs" variant="light" disabled={!other[it.userId]} loading={busy} onClick={() => approveAsOther(it)}>{t('roster.approve.use_other')}</Button>
                 </Group>
               )}
               <Group justify="flex-end">
