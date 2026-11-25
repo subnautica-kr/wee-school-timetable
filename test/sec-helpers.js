@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const routesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server', 'routes');
 
 // 라우터가 붙는 자리(app.js · timetables.js 의 generateRouter)
-const MOUNT = { 'auth.js': '/api/auth', 'notifications.js': '/api/notifications', 'admin.js': '/api/admin', 'roster.js': '/api/orgs/:orgId/roster' };
+const MOUNT = { 'auth.js': '/api/auth', 'notifications.js': '/api/notifications', 'admin.js': '/api/admin', 'signup.js': '/api/signup', 'roster.js': '/api/orgs/:orgId/roster' };
 export function routeList() {
   const out = [];
   for (const file of fs.readdirSync(routesDir).filter((f) => f.endsWith('.js'))) {

@@ -8,6 +8,7 @@ import connectPgSimple from 'connect-pg-simple';
 import rateLimit from 'express-rate-limit';
 import { secret } from './db.js';
 import { authRouter } from './routes/auth.js';
+import { signupRouter } from './routes/signup.js';
 import { adminRouter } from './routes/admin.js';
 import { orgRouter } from './routes/org.js';
 import { auditRouter } from './routes/audit-log.js';
@@ -95,6 +96,7 @@ export function createApp(pool, opts = {}) {
   app.use('/api', apiLimit);
 
   app.use('/api/auth', authRouter(pool, opts));
+  app.use('/api/signup', signupRouter(pool, opts));
   app.use('/api/admin', adminRouter(pool));
   app.use('/api/notifications', notificationsRouter(pool));
   // 보관 학기의 시간표는 읽기만(데이터 보존). 고치기 요청은 409.

@@ -23,37 +23,38 @@ const loginBody = z.object({
 let dummyHashPromise;
 const dummyHash = () => (dummyHashPromise ??= argon2.hash(crypto.randomBytes(8).toString('hex'), ARGON));
 
+// 로그인 성공 때 세션 ID 새로 발급하고 사람·기관을 박는다
+export async function startSession(req, who, orgId, role, extra = {}) {
+  await new Promise((resolve, reject) => req.session.regenerate((e) => (e ? reject(e) : resolve())));
+  req.session.csrf = crypto.randomBytes(24).toString('hex');
+  req.session.userId = who.id;
+  req.session.name = who.name;
+  req.session.orgId = orgId;
+  req.session.role = role;
+  req.session.mustChange = who.mustChange;
+  req.session.cookie.maxAge = who.remember ? 30 * 24 * 3600 * 1000 : null; // 아니면 브라우저 닫으면 끝
+  if (extra.noOrg) req.session.noOrg = extra.noOrg; // 학교 없는 세션의 갈래(승인 대기 화면이 내용을 가른다)
+  await new Promise((resolve, reject) => req.session.save((e) => (e ? reject(e) : resolve())));
+}
+export const sessionBody = (req) => ({
+  user: { id: req.session.userId, name: req.session.name, orgId: req.session.orgId, role: req.session.role, mustChange: req.session.mustChange },
+  ...(req.session.noOrg ? { noOrg: req.session.noOrg } : {}),
+  csrf: req.session.csrf,
+});
+// 학교 없는 세션의 갈래 — pending_approval(코드로 왔다 승인 대기) · dormant(휴면) · unlinked(연결 해제) · none(코드 없이 가입)
+export async function noOrgKind(pool, u) {
+  const { rows } = await pool.query(
+    `SELECT reason FROM unlinked_account WHERE user_id = $1 AND resolved_at IS NULL AND expires_at > now()`,
+    [u.id],
+  );
+  if (rows.some((x) => x.reason === 'pending_approval')) return 'pending_approval';
+  if (u.dormant_at) return 'dormant';
+  if (rows.some((x) => x.reason === 'unlinked')) return 'unlinked';
+  return 'none';
+}
+
 export function authRouter(pool, opts = {}) {
   const r = express.Router();
-  // 로그인 성공 때 세션 ID 새로 발급하고 사람·기관을 박는다
-  const startSession = async (req, who, orgId, role, extra = {}) => {
-    await new Promise((resolve, reject) => req.session.regenerate((e) => (e ? reject(e) : resolve())));
-    req.session.csrf = crypto.randomBytes(24).toString('hex');
-    req.session.userId = who.id;
-    req.session.name = who.name;
-    req.session.orgId = orgId;
-    req.session.role = role;
-    req.session.mustChange = who.mustChange;
-    req.session.cookie.maxAge = who.remember ? 30 * 24 * 3600 * 1000 : null; // 아니면 브라우저 닫으면 끝
-    if (extra.noOrg) req.session.noOrg = extra.noOrg; // 학교 없는 세션의 갈래(승인 대기 화면이 내용을 가른다)
-    await new Promise((resolve, reject) => req.session.save((e) => (e ? reject(e) : resolve())));
-  };
-  const sessionBody = (req) => ({
-    user: { id: req.session.userId, name: req.session.name, orgId: req.session.orgId, role: req.session.role, mustChange: req.session.mustChange },
-    ...(req.session.noOrg ? { noOrg: req.session.noOrg } : {}),
-    csrf: req.session.csrf,
-  });
-  // 학교 없는 세션의 갈래 — pending_approval(코드로 왔다 승인 대기) · dormant(휴면) · unlinked(연결 해제) · none(코드 없이 가입)
-  const noOrgKind = async (u) => {
-    const { rows } = await pool.query(
-      `SELECT reason FROM unlinked_account WHERE user_id = $1 AND resolved_at IS NULL AND expires_at > now()`,
-      [u.id],
-    );
-    if (rows.some((x) => x.reason === 'pending_approval')) return 'pending_approval';
-    if (u.dormant_at) return 'dormant';
-    if (rows.some((x) => x.reason === 'unlinked')) return 'unlinked';
-    return 'none';
-  };
   // 실패한 로그인만 센다 — 공유기 IP 하나인 학교에서 성공 로그인이 한도를 먹지 않게
   const loginLimit = rateLimit({ windowMs: 15 * 60_000, limit: opts.loginLimit ?? 30, standardHeaders: true, legacyHeaders: false, skipSuccessfulRequests: true });
 
@@ -124,7 +125,7 @@ export function authRouter(pool, opts = {}) {
       const who = { id: Number(u.id), name: u.name, mustChange: u.must_change_password, remember };
       if (!cands.length) {
         // ③ 학교 없는 세션 — orgId·role 은 비운다(학교 길목은 가드가 404). 화면은 승인 대기 화면.
-        await startSession(req, who, null, null, { noOrg: await noOrgKind(u) });
+        await startSession(req, who, null, null, { noOrg: await noOrgKind(pool, u) });
         return res.json(sessionBody(req));
       }
       if (!orgId && cands.length > 1) {
