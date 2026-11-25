@@ -209,3 +209,16 @@ test('전출 요청: 엑셀 반영의 대기 줄도 requestTransfer 를 타서 �
     await pool.query(`DELETE FROM transfer_request WHERE to_org IN (SELECT id FROM org WHERE name LIKE $1) OR from_org IN (SELECT id FROM org WHERE name LIKE $1)`, [`${tag}-%`]);
   }
 });
+
+test('전출 승인: 보내는 학교의 「담당 비었음」 소식에 시수표 빈 것 목록 링크가 실린다', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {
+  const s = await scene(t);
+  const term = (await s.pool.query(`INSERT INTO term (org_id, year, semester) VALUES ($1, 2026, 2) RETURNING id`, [s.F])).rows[0].id;
+  await s.pool.query(`INSERT INTO classroom (org_id, term_id, grade, class_no, homeroom_membership_id) VALUES ($1,$2,1,1,$3)`, [s.F, term, s.LF]);
+  const r = await s.link();
+  assert.equal(r.status, 202, JSON.stringify(r.json));
+  const ok = await s.aF.call('POST', `/api/orgs/${s.F}/transfers/${r.json.requestId}/approve`);
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  const n = (await s.pool.query(`SELECT link FROM notification WHERE org_id = $1 AND kind = 'roster_vacated'`, [s.F])).rows;
+  assert.equal(n.length, 1);
+  assert.equal(n[0].link, 'tab:school:vacant');
+});

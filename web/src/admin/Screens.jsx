@@ -86,7 +86,7 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, onLogout, features, 
   const [focus, setFocus] = useState(null); // 자동 생성 점검 줄의 「빈 것 목록 보기」 → 학교 자료 시수표의 빈 것 목록
   const [want, setTab] = useState(admin && !phone ? 'roster' : admin ? 'grid' : 'mine');
   const items = visibleMenus(all, features); // 권한(show) AND 기관 스위치. 「기능 고르기」는 MENU_FEATURES 에 없어 늘 보인다
-  useEffect(() => { if (jump) { setTab(jump.v); if (jump.v === 'approve') countWaiting(); } }, [jump]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (jump) { setTab(jump.v); if (jump.f) setFocus(Date.now()); if (jump.v === 'approve') countWaiting(); } }, [jump]); // eslint-disable-line react-hooks/exhaustive-deps
   // // 도움말 같은 바깥 화면이 시키는 탭 이동
   const tryGo = (v, text) => { setTab(v); setTip(text); setTimeout(() => setTip(null), 12000); };
   const on = (v) => items.some((i) => i.v === v);
@@ -150,7 +150,7 @@ export default function Screens({ user, onLogout, onUser }) {
   const [ov, setOv] = useState(null); // 스위치판·따라 하기가 방금 바꾼 값(메뉴에 바로 반영)
   const features = ov ?? base.features;
   const [jump, setJump] = useState(null); // {v, n} — 도움말·따라 하기가 탭을 옮기라고 시킨다
-  const goTab = (v) => setJump({ v, n: Date.now() });
+  const goTab = (v, f) => setJump({ v, f, n: Date.now() });
   const [rev, setRev] = useState(0); // 「안내 다시 보기」 — 메뉴 화면을 새로 그려 카드를 다시 띄운다
   const [sysSeen, setSysSeen] = useState(readSeenVersion); // 시스템 관리자 「내 정보」 의 새 기능 점
   const sysNew = hasNewVersion(sysSeen, __APP_VERSION__);

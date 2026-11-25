@@ -76,7 +76,7 @@ export async function approveTransfer(c, { id, orgId, byUserId = null, auto = fa
   if (auto) await notify(c, { orgId: rq.from_org, kind: 'transfer.auto_approved', text: t('roster.transfer_notice.auto_approved', { 학교: toName, 이름 }) });
   if (vac.homeroom + vac.classes > 0) {
     const 상태 = 값이름('membership.status', MEMBER_STATUS.TRANSFERRED);
-    await notify(c, { orgId: rq.from_org, kind: 'roster_vacated', text: t('roster.notice.vacated', { 이름, 상태, 담임: vac.homeroom, 수업: vac.classes }) });
+    await notify(c, { orgId: rq.from_org, kind: 'roster_vacated', text: t('roster.notice.vacated', { 이름, 상태, 담임: vac.homeroom, 수업: vac.classes }), link: 'tab:school:vacant' });
   }
   await notify(c, { userId: rq.user_id, orgId: rq.to_org, kind: 'roster.approve', text: t('roster.approve_notice.in', { 학교: toName }) });
   return { ok: true, requestId: Number(rq.id), userId: Number(rq.user_id), membershipId: Number(ln.id), moved: ids, vacant: vac };
