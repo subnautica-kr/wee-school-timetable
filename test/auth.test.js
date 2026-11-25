@@ -146,7 +146,7 @@ test('로그인 흐름', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (
     assert.equal(rp.status, 200);
     assert.equal((await client().login(o.json.id, `${tag}-newadmin`, rp.json.temp)).status, 200);
     // 겸임 계정(다른 기관에도 소속)도 시스템 관리자 비상 초기화는 된다 — 기관 관리자 쪽은 409 그대로
-    const sm = (await pool.query(`INSERT INTO membership (org_id, user_id, role) VALUES ($1,$2,'교직원') RETURNING id`, [school, admins[0].userId])).rows[0].id;
+    const sm = (await pool.query(`INSERT INTO membership (org_id, user_id, role, is_concurrent) VALUES ($1,$2,'교직원',TRUE) RETURNING id`, [school, admins[0].userId])).rows[0].id;
     const rp2 = await s.call('POST', `/api/admin/orgs/${school}/reset-password`, { userId: admins[0].userId });
     assert.equal(rp2.status, 200);
     const ca = client();

@@ -100,7 +100,8 @@ test('DB 통째 백업·되넣기', { skip: (!HAS_DB && 'DB 없음') || (!SAFE_D
     // 013(명단 줄 독립)이 membership 에 더한 칸도 뺀다 — 마지막 마이그레이션(013)을 모르는 옛 서버의 덤프 흉내
     //   (name 은 org·special_room 등에도 있는 칸 이름이라 membership 표에서만 뺀다)
     for (const tb of Object.values(doc.tables)) { tb.columns = tb.columns.filter((c) => !['second_membership_id', 'second_hours'].includes(c.name)); }
-    const M013 = ['name', 'birth_date', 'linked_at', 'linked_by', 'is_concurrent', 'concurrent_until'];
+    // 017(겸임 30일 전 소식 표시 칸)도 같이 뺀다
+    const M013 = ['name', 'birth_date', 'linked_at', 'linked_by', 'is_concurrent', 'concurrent_until', 'concurrent_warned_until'];
     doc.tables.membership.columns = doc.tables.membership.columns.filter((c) => !M013.includes(c.name));
     // 014(새 표·계정 칸)도 뺀다 — 마지막 마이그레이션(014)을 모르는 옛 서버의 덤프 흉내
     for (const n of ['invite_code', 'unlinked_account', 'transfer_request', 'notification', 'notification_read', 'board_post', 'board_comment', 'board_attachment', 'error_report', 'signup_attempt']) delete doc.tables[n];
