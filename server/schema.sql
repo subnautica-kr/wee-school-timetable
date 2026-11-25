@@ -38,13 +38,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS app_user_login_uq ON app_user (lower(login_id)
 CREATE TABLE IF NOT EXISTS membership (
   id         BIGSERIAL PRIMARY KEY,
   org_id     BIGINT NOT NULL REFERENCES org(id),
-  user_id    BIGINT NOT NULL REFERENCES app_user(id),
+  user_id    BIGINT REFERENCES app_user(id),            -- 계정 없는 줄 허용(013 · 이름은 줄 name 칸)
   role       TEXT NOT NULL CHECK (role IN ('시스템관리자','기관관리자','교직원','보기만')),
   duty       TEXT CHECK (duty IN ('담임','전담·비교과')),
   status     TEXT NOT NULL DEFAULT '사용' CHECK (status IN ('사용','숨김')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  deleted_at TIMESTAMPTZ,
-  UNIQUE (user_id, org_id)
+  deleted_at TIMESTAMPTZ
+  -- 같은 학교 같은 계정 줄 하나 · 본 소속 하나는 013 의 부분 유일 색인이 맡는다(지운 줄은 안 센다)
 );
 
 -- express-session(connect-pg-simple) 이 쓰는 표
