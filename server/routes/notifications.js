@@ -36,7 +36,7 @@ export function notificationsRouter(pool) {
           `SELECT count(*)::int AS n FROM unlinked_account WHERE org_id = $1 AND reason = 'pending_approval' AND resolved_at IS NULL AND expires_at > now()`, [org])).rows[0].n;
         const move = (await pool.query(
           `SELECT count(*)::int AS n FROM transfer_request WHERE from_org = $1 AND status = 'waiting' AND expires_at > now()`, [org])).rows[0].n;
-        if (signup) todos.push({ kind: 'signup', count: signup, text: t('notify.todo.signup', { 건수: signup }), tab: 'roster' });
+        if (signup) todos.push({ kind: 'signup', count: signup, text: t('notify.todo.signup', { 건수: signup }), tab: 'approve' });
         if (move) todos.push({ kind: 'transfer', count: move, text: t('notify.todo.transfer', { 건수: move }), tab: 'roster' });
       }
       const todoSum = todos.reduce((a, x) => a + x.count, 0);

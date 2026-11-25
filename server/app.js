@@ -27,6 +27,7 @@ import { exportRouter } from './routes/export.js';
 import { backupRouter } from './routes/backup.js';
 import { trashRouter } from './routes/trash.js';
 import { notificationsRouter } from './routes/notifications.js';
+import { meRouter } from './routes/me.js';
 import { boardRouter } from './routes/board.js';
 import { preCompressed } from './precompressed.js';
 
@@ -100,6 +101,7 @@ export function createApp(pool, opts = {}) {
   app.use('/api/signup', signupRouter(pool, opts));
   app.use('/api/admin', adminRouter(pool));
   app.use('/api/notifications', notificationsRouter(pool));
+  app.use('/api/me', meRouter(pool));
   app.use('/api/board', boardRouter(pool));
   // 보관 학기의 시간표는 읽기만(데이터 보존). 고치기 요청은 409.
   app.use('/api/orgs/:orgId/timetables/:tid', async (req, res, next) => {
