@@ -49,14 +49,15 @@ test('요청 폭주', { skip: !HAS_DB && 'DB 없음' }, async (t) => {
     assert.notEqual(bad[0], 429);
   });
 
-  await t.test('계정 실패 10회 → 맞는 비번도 15분 잠금, 관리자가 풀면 다시 된다', async () => {
+  await t.test('계정 실패 10회 → 맞는 비번도 15분 잠금, 관리자가 비밀번호 초기화로 풀면 다시 된다', async () => {
     const c = f.client();
     await c.call('GET', '/api/auth/session');
     for (let i = 0; i < 10; i++) assert.equal((await c.call('POST', '/api/auth/login', { orgId: f.orgA, loginId: f.users.viewA.loginId, password: 'wrong' })).status, 401);
     assert.equal((await c.login('viewA')).status, 401);
     const admin = await f.as('adminA');
-    assert.equal((await admin.call('POST', `${oA}/roster/${f.users.viewA.mid}/unlock`)).status, 200);
-    assert.equal((await f.client().login('viewA')).status, 200);
+    const reset = await admin.call('POST', `${oA}/roster/${f.users.viewA.mid}/reset-password`);
+    assert.equal(reset.status, 200);
+    assert.equal((await f.client().login('viewA', f.orgA, reset.json.temp)).status, 200);
   });
 
   await t.test('큰 본문 거부: JSON 5MB·1.5MB → 413, 엑셀 올리기 3MB·6MB → 413, 서버는 계속 산다', async () => {

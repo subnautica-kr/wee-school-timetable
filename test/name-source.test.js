@@ -122,8 +122,8 @@ test('DB: 계정 없는 줄이 길목마다 이름째 나온다', { skip: !HAS_D
   assert.equal(pa.status, 200, pa.text.slice(0, 200));
   assert.equal((await one(`SELECT name FROM membership WHERE id = $1`, [mid])).name, NEW);
   assert.ok((await get('/roster')).some((x) => x.name === NEW));
-  // 계정 없는 줄의 계정 일(잠그기)은 없는 것으로 본다(앞 판 판정)
-  assert.equal((await c.call('POST', `${P}/roster/${mid}/lock`, {})).status, 404);
+  // 계정 없는 줄의 계정 일(비밀번호 초기화)은 없는 것으로 본다(앞 판 판정 · 잠그기 길은 T-1302b① 에서 걷음)
+  assert.equal((await c.call('POST', `${P}/roster/${mid}/reset-password`, {})).status, 404);
 
   // 떼기 — 휴지통 묶음 이름표가 줄 이름
   const del = await c.call('DELETE', `${P}/roster/${mid}`);

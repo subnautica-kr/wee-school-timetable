@@ -16,8 +16,10 @@ test('권한 상승', { skip: !HAS_DB && 'DB 없음' }, async (t) => {
     ['POST', `${oA}/roster`, { name: 'x', loginId: `${f.tag}-new`, role: '기관관리자' }],
     ['PATCH', `${oA}/roster/${u.staffA.mid}`, { role: '기관관리자' }],
     ['POST', `${oA}/roster/${u.adminA.mid}/reset-password`],
-    ['POST', `${oA}/roster/${u.adminA.mid}/lock`],
-    ['POST', `${oA}/roster/${u.staffA.mid}/unlock`],
+    ['POST', `${oA}/roster/${u.staffA.mid}/link`, { loginId: 'x' }],
+    ['DELETE', `${oA}/roster/${u.staffA.mid}/link`],
+    ['POST', `${oA}/roster/${u.staffA.mid}/invite`],
+    ['GET', `${oA}/roster/unlinked`],
     ['GET', `${oA}/roster/template`],
     ['POST', `${oA}/roster/import`, { rows: [{ name: 'x', loginId: `${f.tag}-imp`, role: '기관관리자' }] }],
     ['PUT', `${oA}/school/periods`, {}],
@@ -119,13 +121,13 @@ test('권한 상승', { skip: !HAS_DB && 'DB 없음' }, async (t) => {
     assert.equal((await cb.call('GET', `${oA}/classrooms`)).status, 404);
   });
 
-  await t.test('겸임 계정을 A 관리자가 건드려 B 권한을 얻을 수 없다(비번 초기화·잠금·풀기·ID 바꾸기)', async () => {
+  await t.test('겸임 계정을 A 관리자가 건드려 B 권한을 얻을 수 없다(비번 초기화·ID 바꾸기 · 잠금 길은 걷음)', async () => {
     const c = await f.as('adminA');
     const mid = u.dual.mid;
     const reset = await c.call('POST', `${oA}/roster/${mid}/reset-password`);
     assert.equal(reset.status, 409, `A 관리자가 겸임 계정 비번을 초기화했다(${reset.status}) — 임시 비번으로 B 관리자 로그인 가능`);
-    assert.equal((await c.call('POST', `${oA}/roster/${mid}/lock`)).status, 409);
-    assert.equal((await c.call('POST', `${oA}/roster/${mid}/unlock`)).status, 409);
+    assert.equal((await c.call('POST', `${oA}/roster/${mid}/lock`)).status, 404); // 기관 관리자 잠금 길은 걷었다(T-1302b①)
+    assert.equal((await c.call('POST', `${oA}/roster/${mid}/unlock`)).status, 404);
     assert.equal((await c.call('PATCH', `${oA}/roster/${mid}`, { loginId: `${f.tag}-dual-renamed` })).status, 409);
     // A 안에서만 닿는 것(역할·숨김)은 된다
     assert.equal((await c.call('PATCH', `${oA}/roster/${mid}`, { role: '보기만' })).status, 200);

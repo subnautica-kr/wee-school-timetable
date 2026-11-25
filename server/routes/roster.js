@@ -2,7 +2,8 @@ import express from 'express';
 import { z } from 'zod';
 import ExcelJS from 'exceljs';
 import { requireOrgAction } from '../guard.js';
-import { createAccount, createLine, resetPassword, ID_RE } from '../accounts.js';
+import { createAccount, createLine, createUserOnly, releaseUnlinked, resetPassword, ID_RE } from '../accounts.js';
+import { issueInvite } from '../invite.js';
 import { getRuleLevels } from '../rules.js';
 import { currentTerm } from './school.js';
 import { audit, killSessions } from '../audit.js';
@@ -10,10 +11,10 @@ import { inTx, removeWithCascade } from '../cascade.js';
 import { EXCEL_SPECS, rosterSpec, applyPlans, makeWorkbook, markErrors, planSheet, readWorkbook, undoExcel } from '../export/import.js';
 import { fail } from '../fail.js';
 import { t, 값이름 } from '../../shared/text/index.js';
-import { MEMBER_STATUS, MEMBER_STATUS_LOGIN, ROLE, DORMANT_REASON, TRANSFER_STATUS } from '../../shared/codes.js';
+import { MEMBER_STATUS, MEMBER_STATUS_LOGIN, ROLE, DORMANT_REASON, TRANSFER_STATUS, UNLINKED_REASON } from '../../shared/codes.js';
 import { linkAccount, unlinkAccount, withTx } from '../link.js';
 import { notify } from '../notify.js';
-import { sameName, sameBirth } from '../match.js';
+import { sameName, sameBirth, matchPerson } from '../match.js';
 import { CEIL, dutyFromText, dutyKnown, dutyWarnings, limitWarnings, loadConfig, withWarnings } from '../orgConfig.js';
 
 // 명단 탭 — 줄 = 계정. 관리자만(school.manage). 모든 쿼리에 membership.org_id = req.orgId.
@@ -241,45 +242,189 @@ export function rosterRouter(pool) {
     }
   });
 
-  // 수동 잠금(전출·퇴직) / 해제(실패 자동 잠금도 같이 풀린다)
   // 소속 떼기 — 이 기관 멤버십만 지운다(계정·다른 기관 소속은 그대로). 딸린 것은 cascade 묶음으로 남아 휴지통에서 되살린다.
+  // 계정이 연결된 줄이면 공용 「해제」가 같이 되어 그 계정은 「연결 안 된 계정」 묶음에 선다(되살리면 줄만 돌아온다 · T-1302b①).
   r.delete('/:mid', async (req, res, next) => {
     try {
       const t = await target(req);
       if (!t) return nf(res);
       if (t.user_id === req.session.userId) return res.status(409).json({ error: '내 소속은 뗄 수 없습니다' });
       if (t.role === '기관관리자' && (await activeAdmins(req.orgId)) <= 1) return res.status(409).json({ error: '마지막 관리자는 뗄 수 없습니다' });
-      const out = await inTx(pool, (c) => removeWithCascade(c, req.orgId, 'membership', t.id, req.session.userId));
+      const out = await inTx(pool, async (c) => {
+        if (t.user_id != null) {
+          const u = await unlinkAccount(c, { membershipId: t.id, byUserId: req.session.userId, reason: DORMANT_REASON.REMOVED, listUnlinked: true });
+          if (u.error) return u;
+        }
+        return removeWithCascade(c, req.orgId, 'membership', t.id, req.session.userId);
+      });
+      if (out?.error) return fail(res, 409, out.error);
       if (!out) return nf(res);
       await audit(pool, { ...me(req), action: 'membership.delete', table: 'membership', rowId: t.id, after: { name: out.label, batch: out.batchId } });
-      res.json({ ok: true, batchId: out.batchId });
+      res.json({ ok: true, batchId: out.batchId, unlinked: t.user_id != null });
     } catch (e) {
       e.expose ? res.status(e.status).json({ error: e.message }) : next(e);
     }
   });
-  r.post('/:mid/lock', async (req, res, next) => {
+  // 기관 관리자의 계정 「잠금」·「잠금 풂」 길은 걷었다(T-1302b① · 잠금은 총괄관리자만 — T-1326). 학교에서 못 쓰게 하는 길은 재직 상태·연결 해제.
+
+  // ── 계정 연결(T-1302b①) — 「계정 연결」 창 세 갈래 · 연결 해제 · 「연결 안 된 계정」 묶음 ──
+  const lineFor = async (mid, orgId, db = pool) => {
+    const ok = idParam.safeParse(mid);
+    if (!ok.success) return null;
+    return (await db.query(
+      `SELECT id, user_id, role, name, birth_date FROM membership
+        WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL AND role <> $3`, [ok.data, orgId, ROLE.SYSADMIN])).rows[0];
+  };
+  const userByLogin = async (loginId) =>
+    (await pool.query(`SELECT id, login_id, name FROM app_user WHERE lower(login_id) = lower($1) AND deleted_at IS NULL`, [loginId])).rows[0];
+  const linkIn = z.object({ loginId: z.string().trim().regex(ID_RE), force: z.boolean().optional() });
+
+  // 대조 경고 둘(이름·생년월일 다름 / 같은 사람 계정이 또 있음) — 막지 않고 알린다. 경고가 있으면 409 needConfirm, force 면 그대로 잇는다.
+  const linkChecked = async (req, res, ln, user, force) => {
+    if (ln.user_id != null) return fail(res, 409, Number(ln.user_id) === Number(user.id) ? 'roster.err.already_linked' : 'roster.err.line_taken');
+    if (!force) {
+      const m = await matchPerson(pool, { name: ln.name, birthDate: ln.birth_date, userId: user.id });
+      const warnings = [];
+      if (m.check?.name === false) warnings.push({ code: 'name', text: t('roster.link_warn.name', { 계정이름: user.name ?? '' }) });
+      if (m.check?.birth === false) warnings.push({ code: 'birth', text: t('roster.link_warn.birth') });
+      const others = m.candidates.filter((x) => x.userId !== Number(user.id));
+      if (others.length) {
+        const 아이디 = others.map((x) => x.loginId).join(', ');
+        warnings.push({
+          code: 'other', text: t('roster.link_warn.other', { 아이디 }),
+          accounts: others.map((x) => ({ loginId: x.loginId, linkedCount: x.linkedCount })),
+        });
+      }
+      if (warnings.length) return fail(res, 409, 'roster.err.need_confirm', undefined, { needConfirm: true, warnings });
+    }
+    const r = await linkAccount(pool, { membershipId: ln.id, userId: user.id, byUserId: req.session.userId });
+    if (r.error) return fail(res, 409, r.error);
+    res.json({ ...r, loginId: user.login_id });
+  };
+
+  // 갈래 ① 아이디로 연결 — { loginId, force? } → { ok, membershipId, userId, isConcurrent, loginId } · 경고면 409 { needConfirm, warnings }
+  r.post('/:mid/link', async (req, res, next) => {
     try {
-      const t = await target(req);
-      if (!t?.user_id) return nf(res); // 계정 없는 줄엔 잠글 계정이 없다
-      if (t.user_id === req.session.userId) return res.status(409).json({ error: '내 계정은 잠글 수 없습니다' });
-      if (await sharedElsewhere(t)) return res.status(409).json({ error: SHARED });
-      if (t.role === '기관관리자' && (await activeAdmins(req.orgId)) <= 1) return res.status(409).json({ error: '마지막 관리자는 잠글 수 없습니다' });
-      await pool.query(`UPDATE app_user SET status = '잠김' WHERE id = $1`, [t.user_id]);
-      await killSessions(pool, t.user_id);
-      await audit(pool, { ...me(req), action: 'roster.lock', table: 'app_user', rowId: t.user_id });
-      res.json({ ok: true });
+      const ln = await lineFor(req.params.mid, req.orgId);
+      if (!ln) return nf(res);
+      const p = linkIn.safeParse(req.body);
+      if (!p.success) return fail(res, 400, 'roster.err.bad_input');
+      const user = await userByLogin(p.data.loginId);
+      if (!user) return fail(res, 404, 'roster.err.account_not_found');
+      await linkChecked(req, res, ln, user, p.data.force);
     } catch (e) {
       next(e);
     }
   });
-  r.post('/:mid/unlock', async (req, res, next) => {
+
+  // 갈래 ② 계정 만들어 주기 — { loginId } → 201 { ok, membershipId, userId, loginId, temp }(임시 비밀번호는 한 번만)
+  r.post('/:mid/account', async (req, res, next) => {
     try {
-      const t = await target(req);
-      if (!t?.user_id) return nf(res);
-      if (await sharedElsewhere(t)) return res.status(409).json({ error: SHARED });
-      await pool.query(`UPDATE app_user SET status = '사용', failed_count = 0, locked_until = NULL WHERE id = $1`, [t.user_id]);
-      await audit(pool, { ...me(req), action: 'roster.unlock', table: 'app_user', rowId: t.user_id });
-      res.json({ ok: true });
+      const ln = await lineFor(req.params.mid, req.orgId);
+      if (!ln) return nf(res);
+      if (ln.user_id != null) return fail(res, 409, 'roster.err.line_taken');
+      const p = z.object({ loginId: z.string().trim().regex(ID_RE) }).safeParse(req.body);
+      if (!p.success) return fail(res, 400, 'roster.err.bad_input');
+      const out = await withTx(pool, async (c) => {
+        const a = await createUserOnly(c, { name: ln.name ?? '', loginId: p.data.loginId, birthDate: ln.birth_date });
+        if (a.error) return a;
+        const l = await linkAccount(c, { membershipId: ln.id, userId: a.userId, byUserId: req.session.userId });
+        if (l.error) return l;
+        await audit(c, { ...me(req), action: 'roster.create-account', table: 'membership', rowId: ln.id, after: { loginId: p.data.loginId } });
+        return { ...l, loginId: p.data.loginId, temp: a.temp };
+      });
+      if (out.error) return fail(res, 409, out.error);
+      res.status(201).json(out);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // 갈래 ③ 초대 코드 발급·재발급 — 그 줄의 앞 코드는 무효 · 7일 → 201 { code, expiresAt, first }
+  r.post('/:mid/invite', async (req, res, next) => {
+    try {
+      const ln = await lineFor(req.params.mid, req.orgId);
+      if (!ln) return nf(res);
+      const out = await withTx(pool, async (c) => {
+        const i = await issueInvite(c, { orgId: req.orgId, membershipId: ln.id, byUserId: req.session.userId });
+        if (i.error) return i;
+        await audit(c, { ...me(req), action: 'roster.invite', table: 'membership', rowId: ln.id });
+        return i;
+      });
+      if (out.error) return fail(res, 409, out.error);
+      res.status(201).json(out);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // 연결 해제 — 그 계정은 「연결 안 된 계정」 묶음(30일)에 선다 → { ok, membershipId, userId, dormant }
+  r.delete('/:mid/link', async (req, res, next) => {
+    try {
+      const ln = await lineFor(req.params.mid, req.orgId);
+      if (!ln) return nf(res);
+      if (ln.user_id == null) return fail(res, 409, 'roster.err.not_linked');
+      if (Number(ln.user_id) === Number(req.session.userId)) return fail(res, 409, 'roster.err.self_unlink');
+      if (ln.role === ROLE.ORG_ADMIN && (await activeAdmins(req.orgId)) <= 1) return fail(res, 409, 'roster.err.last_admin_unlink');
+      const u = await unlinkAccount(pool, { membershipId: ln.id, byUserId: req.session.userId, reason: DORMANT_REASON.REMOVED, listUnlinked: true });
+      if (u.error) return fail(res, 409, u.error);
+      res.json(u);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // 「연결 안 된 계정」 묶음 — [{ userId, loginId, name, since, expiresAt, fromLineId, fromLineName }]
+  r.get('/unlinked', async (req, res, next) => {
+    try {
+      const rows = (await pool.query(
+        `SELECT ua.user_id, ua.membership_id, ua.created_at, ua.expires_at, u.login_id, u.name
+           FROM unlinked_account ua JOIN app_user u ON u.id = ua.user_id AND u.deleted_at IS NULL
+          WHERE ua.org_id = $1 AND ua.reason = $2 AND ua.resolved_at IS NULL
+          ORDER BY ua.created_at, ua.id`, [req.orgId, UNLINKED_REASON.UNLINKED])).rows;
+      const ids = rows.map((x) => x.membership_id).filter((x) => x != null);
+      const lines = new Map((await pool.query(`SELECT id, name FROM membership WHERE id = ANY($1::bigint[])`, [ids])).rows.map((x) => [String(x.id), x.name]));
+      res.json(rows.map((x) => ({
+        userId: Number(x.user_id), loginId: x.login_id, name: x.name, since: x.created_at, expiresAt: x.expires_at,
+        fromLineId: x.membership_id == null ? null : Number(x.membership_id), fromLineName: lines.get(String(x.membership_id)) ?? null,
+      })));
+    } catch (e) {
+      next(e);
+    }
+  });
+  const openUnlinked = async (orgId, uid) => {
+    const ok = idParam.safeParse(uid);
+    if (!ok.success) return null;
+    return (await pool.query(
+      `SELECT ua.user_id FROM unlinked_account ua WHERE ua.org_id = $1 AND ua.user_id = $2 AND ua.reason = $3 AND ua.resolved_at IS NULL LIMIT 1`,
+      [orgId, ok.data, UNLINKED_REASON.UNLINKED])).rows[0];
+  };
+
+  // 묶음 → 명단에 연결 — { membershipId, force? } · 응답은 아이디로 연결과 같다
+  r.post('/unlinked/:uid/link', async (req, res, next) => {
+    try {
+      const open = await openUnlinked(req.orgId, req.params.uid);
+      if (!open) return nf(res);
+      const p = z.object({ membershipId: idParam, force: z.boolean().optional() }).safeParse(req.body);
+      if (!p.success) return fail(res, 400, 'roster.err.bad_input');
+      const ln = await lineFor(p.data.membershipId, req.orgId);
+      if (!ln) return fail(res, 404, 'roster.err.line_not_found');
+      const user = (await pool.query(`SELECT id, login_id, name FROM app_user WHERE id = $1 AND deleted_at IS NULL`, [open.user_id])).rows[0];
+      if (!user) return nf(res);
+      await linkChecked(req, res, ln, user, p.data.force);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // 묶음 → 학교에서 내보내기(다른 소속이 없으면 휴면) → { ok, userId, dormant }
+  r.post('/unlinked/:uid/release', async (req, res, next) => {
+    try {
+      const open = await openUnlinked(req.orgId, req.params.uid);
+      if (!open) return nf(res);
+      const out = await withTx(pool, (c) => releaseUnlinked(c, { orgId: req.orgId, userId: open.user_id, byUserId: req.session.userId }));
+      if (out.error) return fail(res, 409, out.error);
+      res.json(out);
     } catch (e) {
       next(e);
     }
