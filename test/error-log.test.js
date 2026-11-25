@@ -10,8 +10,8 @@ const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a
 const bin = { 'content-type': 'application/octet-stream' };
 
 test('가림: 이메일·전화·이름·아이디·쿼리값이 글자에서 사라진다(DB 없이)', () => {
-  const out = scrubText('홍길동 선생님 kim@school.kr 010-1234-5678 GET /api/x?name=김가명&id=7 {"name":"박철수"} 로그인 abc-login', ['abc-login']);
-  for (const bad of ['홍길동', 'kim@school.kr', '1234-5678', '김가명', '박철수', 'abc-login']) assert.ok(!out.includes(bad), `${bad} 남음: ${out}`);
+  const out = scrubText('홍길동 선생님 kim@school.kr 010-1234-5678 GET /api/x?name=김가나&id=7 {"name":"박철수"} 로그인 abc-login', ['abc-login']);
+  for (const bad of ['홍길동', 'kim@school.kr', '1234-5678', '김가나', '박철수', 'abc-login']) assert.ok(!out.includes(bad), `${bad} 남음: ${out}`);
   assert.ok(out.includes('/api/x'));
 });
 
