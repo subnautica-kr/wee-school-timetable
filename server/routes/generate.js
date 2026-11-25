@@ -126,7 +126,7 @@ export function generateRouter(pool) {
       const t = await currentTerm(pool, o);
       const q = async (sql, p = [o]) => (await pool.query(sql, p)).rows;
       const classrooms = await q(`SELECT id, grade, class_no, homeroom_membership_id FROM classroom WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL ORDER BY grade, class_no`, [o, t.id]);
-      const lines = await q(`SELECT id, membership_id, second_membership_id, second_hours, subject_id, classroom_id, special_room_id, weekly_hours, sync_progress, block FROM teaching_load WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL ORDER BY id`, [o, t.id]);
+      const lines = await q(`SELECT id, membership_id, second_membership_id, second_hours, subject_id, classroom_id, special_room_id, room_group_id, room_hours, weekly_hours, sync_progress, block FROM teaching_load WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL ORDER BY id`, [o, t.id]);
       const org = (await q(`SELECT soft_weights, small_school FROM org WHERE id = $1`))[0] ?? {};
       const periodCfg = (await q(`SELECT period_config FROM org WHERE id = $1`))[0]?.period_config ?? {};
       const tierRows = await q(`SELECT id, tier FROM membership WHERE org_id = $1 AND deleted_at IS NULL AND tier IS NOT NULL`);
@@ -147,6 +147,8 @@ export function generateRouter(pool) {
         subjects: await q(`SELECT id, name, short_name FROM subject WHERE org_id = $1 AND deleted_at IS NULL ORDER BY is_default DESC, id`),
         teachers: await q(`SELECT m.id, m.name FROM membership m WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.status = '사용' AND m.role <> '시스템관리자' ORDER BY m.name`),
         rooms: await q(`SELECT id, name, purpose, capacity FROM special_room WHERE org_id = $1 AND deleted_at IS NULL ORDER BY id`),
+        // 특별실 묶음(T-1312): 구성원은 살아 있는 같은 기관 방만
+        room_groups: await q(`SELECT g.id, COALESCE((SELECT array_agg(s.id ORDER BY s.id) FROM special_room s WHERE s.id = ANY(g.room_ids) AND s.org_id = g.org_id AND s.deleted_at IS NULL), '{}') AS room_ids FROM special_room_group g WHERE g.org_id = $1 AND g.deleted_at IS NULL ORDER BY g.id`),
         levels: await getRuleLevels(pool, o),
       });
     } catch (e) { next(e); }
