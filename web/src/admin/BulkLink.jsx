@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Badge, Button, Checkbox, Group, Modal, Paper, ScrollArea, Stack, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Button, Checkbox, Group, Modal, Paper, ScrollArea, SegmentedControl, Stack, Table, Text, TextInput } from '@mantine/core';
 import { api } from '../api.js';
 import { t } from '../T.jsx';
 import { dateText } from './linkView.js';
@@ -17,7 +17,20 @@ export default function BulkLink({ base, lines, onClose, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [out, setOut] = useState(null); // { results, counts }
+  const [mode, setMode] = useState('ids'); // ids | invite
+  const [inv, setInv] = useState(null); // { items, xlsx, xlsxName }
   const rows = bulkRowsOf(ids);
+  const runInvite = async () => {
+    setErr(''); setBusy(true);
+    try { setInv(await api('POST', `${base}/invites/bulk`, {})); } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const saveXlsx = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([Uint8Array.from(atob(inv.xlsx), (c) => c.charCodeAt(0))], { type: 'application/octet-stream' }));
+    a.download = inv.xlsxName;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
   const run = async () => {
     if (!rows.length) { setErr(t('roster.bulk_link.none_filled')); return; }
     setErr(''); setBusy(true);
@@ -36,7 +49,37 @@ export default function BulkLink({ base, lines, onClose, onChanged }) {
     <Modal opened onClose={() => !busy && onClose()} title={t('roster.bulk_link.title')} size="lg" centered>
       <Stack data-testid="bulk-link">
         {err && <Alert color="red" withCloseButton onClose={() => setErr('')}>{err}</Alert>}
-        {!out && (
+        {!out && !inv && <SegmentedControl value={mode} onChange={setMode} data={[{ value: 'ids', label: t('roster.bulk_link.mode_ids') }, { value: 'invite', label: t('roster.bulk_link.mode_invite') }]} />}
+        {!out && !inv && mode === 'invite' && (
+          <>
+            <Text size="sm">{t('roster.invite_bulk.lead')}</Text>
+            {free.length === 0 && <Text size="sm" c="dimmed">{t('roster.bulk_link.no_line')}</Text>}
+            <Group justify="flex-end">
+              <Button variant="default" disabled={busy} onClick={onClose}>{t('roster.bulk_link.close')}</Button>
+              <Button loading={busy} disabled={!free.length} onClick={runInvite} data-testid="invite-bulk-run">{t('roster.invite_bulk.run', countV(free.length))}</Button>
+            </Group>
+          </>
+        )}
+        {inv && (
+          <>
+            <Text size="sm">{t('roster.invite_bulk.done', countV(inv.items.length))}</Text>
+            <ScrollArea.Autosize mah={380}>
+              <Table data-testid="invite-bulk-table">
+                <Table.Thead><Table.Tr><Table.Th>{t('roster.invite_bulk.col_name')}</Table.Th><Table.Th>{t('roster.invite_bulk.col_code')}</Table.Th><Table.Th>{t('roster.invite_bulk.col_expires')}</Table.Th></Table.Tr></Table.Thead>
+                <Table.Tbody>
+                  {inv.items.map((x) => (
+                    <Table.Tr key={x.lineId}><Table.Td>{x.name}</Table.Td><Table.Td ff="monospace">{x.code}</Table.Td><Table.Td>{dateText(x.expiresAt)}</Table.Td></Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </ScrollArea.Autosize>
+            <Group justify="flex-end">
+              <Button variant="default" onClick={saveXlsx}>{t('roster.invite_bulk.download')}</Button>
+              <Button onClick={onClose}>{t('roster.bulk_link.close')}</Button>
+            </Group>
+          </>
+        )}
+        {!out && !inv && mode === 'ids' && (
           <>
             <Text size="sm">{t('roster.bulk_link.lead')}</Text>
             {free.length === 0 && <Text size="sm" c="dimmed">{t('roster.bulk_link.no_line')}</Text>}

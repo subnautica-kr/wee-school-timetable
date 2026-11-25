@@ -1013,5 +1013,42 @@ export function rosterRouter(pool) {
     }
   });
 
+  // 초대 코드 일괄 발급 — 계정 안 이어진 줄(또는 받은 lineIds)마다 코드 하나. 살아 있는 코드가 있으면 그대로 돌려준다(단건 /:mid/invite 는 늘 새로 낸다)
+  // → { items: [{ lineId, name, code, expiresAt }], xlsx: base64, xlsxName }
+  r.post('/invites/bulk', async (req, res, next) => {
+    try {
+      const p = z.object({ lineIds: z.array(idParam).max(2000).optional() }).safeParse(req.body ?? {});
+      if (!p.success) return fail(res, 400, 'roster.err.bad_input');
+      const items = await withTx(pool, async (c) => {
+        const lines = (await c.query(
+          `SELECT id, name FROM membership
+            WHERE org_id = $1 AND user_id IS NULL AND deleted_at IS NULL AND role <> $2 AND ($3::bigint[] IS NULL OR id = ANY($3::bigint[]))
+            ORDER BY id`, [req.orgId, ROLE.SYSADMIN, p.data.lineIds ?? null])).rows;
+        const out = [];
+        for (const ln of lines) {
+          let live = (await c.query(
+            `SELECT code, expires_at FROM invite_code WHERE membership_id = $1 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > now()`, [ln.id])).rows[0];
+          if (!live) {
+            const i = await issueInvite(c, { orgId: req.orgId, membershipId: ln.id, byUserId: req.session.userId });
+            if (i.error) continue;
+            live = { code: i.code, expires_at: i.expiresAt };
+            await audit(c, { ...me(req), action: 'roster.invite', table: 'membership', rowId: ln.id });
+          }
+          out.push({ lineId: Number(ln.id), name: ln.name, code: live.code, expiresAt: live.expires_at });
+        }
+        return out;
+      });
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet(t('roster.invite_bulk.sheet'));
+      ws.addRow([t('roster.invite_bulk.col_name'), t('roster.invite_bulk.col_code'), t('roster.invite_bulk.col_expires')]);
+      for (const x of items) ws.addRow([x.name, x.code, new Date(x.expiresAt).toISOString().slice(0, 10)]);
+      ws.getRow(1).font = { bold: true };
+      ws.columns.forEach((c, i) => (c.width = [16, 14, 14][i]));
+      res.json({ items, xlsx: Buffer.from(await wb.xlsx.writeBuffer()).toString('base64'), xlsxName: t('roster.invite_bulk.file') });
+    } catch (e) {
+      next(e);
+    }
+  });
+
   return r;
 }
