@@ -10,8 +10,8 @@ const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a
 const bin = { 'content-type': 'application/octet-stream' };
 
 test('가림: 이메일·전화·이름·아이디·쿼리값이 글자에서 사라진다(DB 없이)', () => {
-  const out = scrubText('홍길동 선생님 kim@school.kr 010-1234-5678 GET /api/x?name=김가명&id=7 {"name":"박철수"} 로그인 abc-login', ['abc-login']);
-  for (const bad of ['홍길동', 'kim@school.kr', '1234-5678', '김가명', '박철수', 'abc-login']) assert.ok(!out.includes(bad), `${bad} 남음: ${out}`);
+  const out = scrubText('홍길동 선생님 kim@school.kr 010-1234-5678 GET /api/x?name=김가나&id=7 {"name":"박철수"} 로그인 abc-login', ['abc-login']);
+  for (const bad of ['홍길동', 'kim@school.kr', '1234-5678', '김가나', '박철수', 'abc-login']) assert.ok(!out.includes(bad), `${bad} 남음: ${out}`);
   assert.ok(out.includes('/api/x'));
 });
 
@@ -142,4 +142,18 @@ test('글쓰기에 오류 기록 번호를 실으면 기록에 글 번호가 이
   assert.equal(String(row.board_post_id), String(p.json.id));
   await f.pool.query(`UPDATE error_report SET board_post_id = NULL WHERE id = $1`, [rep.json.id]);
   await f.pool.query(`DELETE FROM error_report WHERE id = $1`, [rep.json.id]);
+});
+
+test('오류 기록: 91일 된 줄은 지워지고 89일 된 줄은 남는다', { skip }, async (t) => {
+  const f = await setup(t);
+  const ins = async (days) => (await f.pool.query(
+    `INSERT INTO error_report (message, created_at) VALUES ($1, now() - make_interval(days => $2)) RETURNING id`, [`${f.tag}-정리`, days],
+  )).rows[0].id;
+  const old = await ins(91);
+  const fresh = await ins(89);
+  const out = await runCleanups(f.pool, { log: { error() {} } });
+  assert.equal(out.find((x) => x.name === 'error-report-90d')?.ok, true);
+  const left = (await f.pool.query(`SELECT id FROM error_report WHERE id = ANY($1::bigint[])`, [[old, fresh]])).rows.map((r) => String(r.id));
+  assert.deepEqual(left, [String(fresh)]);
+  await f.pool.query(`DELETE FROM error_report WHERE id = $1`, [fresh]);
 });

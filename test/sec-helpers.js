@@ -43,6 +43,10 @@ export async function cleanupOrgs(pool, orgIds, tag) {
   for (const tb of ORG_TABLES) await pool.query(`DELETE FROM ${tb} WHERE org_id = ANY($1::bigint[])`, [ids]);
   await pool.query(`DELETE FROM audit_log WHERE table_name = 'org' AND (after->>'name') LIKE $1`, [`${tag}-%`]);
   await pool.query(`DELETE FROM session WHERE (sess->>'userId') IN (SELECT id::text FROM app_user WHERE login_id LIKE $1)`, [`${tag}-%`]);
+  // 소속 줄을 가리키는 표(연결 안 된 계정·초대 코드·전출 요청)를 먼저 — 외래키 위반 방지(T-1328)
+  await pool.query(`DELETE FROM unlinked_account WHERE org_id = ANY($1::bigint[]) OR membership_id IN (SELECT id FROM membership WHERE org_id = ANY($1::bigint[]))`, [ids]);
+  await pool.query(`DELETE FROM invite_code WHERE org_id = ANY($1::bigint[])`, [ids]);
+  await pool.query(`DELETE FROM transfer_request WHERE from_org = ANY($1::bigint[]) OR to_org = ANY($1::bigint[]) OR to_membership_id IN (SELECT id FROM membership WHERE org_id = ANY($1::bigint[]))`, [ids]);
   await pool.query(`DELETE FROM membership WHERE org_id = ANY($1::bigint[])`, [ids]);
   await pool.query(`DELETE FROM app_user WHERE login_id LIKE $1`, [`${tag}-%`]);
   await pool.query(`DELETE FROM org WHERE id = ANY($1::bigint[])`, [ids]);

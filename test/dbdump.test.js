@@ -104,6 +104,8 @@ test('DB 통째 백업·되넣기', { skip: (!HAS_DB && 'DB 없음') || (!SAFE_D
     doc.tables.membership.columns = doc.tables.membership.columns.filter((c) => !M013.includes(c.name));
     // 014(새 표·계정 칸)도 뺀다 — 마지막 마이그레이션(014)을 모르는 옛 서버의 덤프 흉내
     for (const n of ['invite_code', 'unlinked_account', 'transfer_request', 'notification', 'notification_read', 'board_post', 'board_comment', 'board_attachment', 'error_report', 'signup_attempt']) delete doc.tables[n];
+    // 016(앱 설정 칸)도 뺀다 — 마지막 마이그레이션을 모르는 옛 서버의 덤프 흉내
+    delete doc.tables.app_setting;
     const M014 = ['birth_date', 'signed_up_at', 'first_linked_at', 'dormant_at', 'dormant_reason'];
     doc.tables.app_user.columns = doc.tables.app_user.columns.filter((c) => !M014.includes(c.name));
     const old = path.join(tmp, 'old.json.gz');
