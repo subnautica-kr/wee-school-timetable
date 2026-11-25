@@ -26,6 +26,19 @@ export const PERMISSIONS = {
   'attendance.manage': [ADMIN], // 남의 근태·월 마감·마감 풀기
   'school.backup': [ADMIN], // 학교 자료 내려받기(백업)
   'audit.view': [ADMIN], // 감사 로그
+
+  // 0.3.0 계정 연결·승인(T-1320b) — 계정·도움·요청은 기능 스위치가 아니라 늘 켜진 바닥
+  'member.link': [ADMIN], // 계정 연결·연결 해제·초대 코드 발급·연결 안 된 계정 내보내기
+  'member.approve': [ADMIN], // 가입 승인·받은 전출 요청 승인·거절
+  'member.transfer': [ADMIN], // 다른 학교에 전출 요청 보내기
+  'notify.read': [ADMIN, STAFF, VIEW], // 종(학교·개인 소식 읽기·읽음 표시)
+
+  // 도움·요청(학교 쪽) — 기관 관리자의 처리 상태 바꾸기는 공개 범위 「우리 학교 기관 관리자만」 글뿐(길목에서 가름)
+  'board.write': [ADMIN, STAFF, VIEW], // 글쓰기·내 글 보기(소속 없는 계정은 길목이 막음)
+  'board.reply': [ADMIN], // 답글
+  'board.stage': [ADMIN], // 처리 상태 바꾸기
+  // 총괄관리자 쪽(새 글 소식·답글·처리 상태·묶기·태그·총괄관리자 소식 읽기)은 위 'org.manage' 로 가른다 —
+  // 「시스템 관리자는 기관 안 동작이 하나도 없다」(test/org-boundary) 를 지키려고 학교 쪽 동작에 SYS 를 안 넣는다.
 };
 
 export function can(role, action) {

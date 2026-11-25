@@ -26,7 +26,9 @@ export async function createAccount(db, { orgId, name, loginId, role, duty = nul
     if (!ins.rows[0]) return { error: '이미 쓰고 있는 ID 입니다' };
     userId = ins.rows[0].id;
   }
-  const m = await db.query(`INSERT INTO membership (org_id, user_id, role, duty) VALUES ($1,$2,$3,$4) RETURNING id`, [orgId, userId, role, duty]);
+  const m = await db.query(`INSERT INTO membership (org_id, user_id, role, duty, linked_at) VALUES ($1,$2,$3,$4, now()) RETURNING id`, [orgId, userId, role, duty]);
+  // 계정이 든 줄을 만드는 것도 「연결」이다 — 처음 연결 시각을 채우고 휴면을 푼다(T-1320b · 줄 먼저 만들고 잇는 길은 link.js)
+  await db.query(`UPDATE app_user SET first_linked_at = COALESCE(first_linked_at, now()), dormant_at = NULL, dormant_reason = NULL WHERE id = $1`, [userId]);
   return { userId: Number(userId), membershipId: Number(m.rows[0].id), temp };
 }
 
