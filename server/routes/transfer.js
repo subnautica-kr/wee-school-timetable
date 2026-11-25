@@ -117,7 +117,7 @@ registerCleanup('transfer-7d', async (db, now) => {
 export function transferRouter(pool) {
   const r = express.Router({ mergeParams: true });
   const gate = requireOrgAction('member.transfer');
-  const nf = (res) => res.status(404).json({ error: '없습니다' });
+  const nf = (res) => res.status(404).json({ error: 'admin.err.not_found' });
   const send = (res, out) => (out.status === 404 ? nf(res) : fail(res, out.status ?? 409, out.error));
 
   // 목록 — { received:[{ id, toOrg, membershipId, name, birthDate, loginId, vacant:{homeroom,classes}, createdAt, expiresAt, text }],
