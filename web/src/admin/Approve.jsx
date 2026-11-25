@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Badge, Button, Checkbox, Group, Modal, Paper, Select, Stack, Text } from '@mantine/core';
 import { api } from '../api.js';
 import { t } from '../T.jsx';
 import { dateText, freeLineOptions, needsConfirm, warningLines } from './linkView.js';
 import { showBirth } from '../signup/birth.js';
+import ContactNudge from './ContactNudge.jsx';
 
 const skipV = (s) => ({ 이름: s.name, 사유: s.text }); // 문구-예외: 문구 변수 이름
 const orgsV = (a) => ({ 학교: a.join(', ') }); // 문구-예외: 문구 변수 이름
@@ -27,11 +28,17 @@ export default function Approve({ orgId, onCount, onChanged }) {
   const [hint, setHint] = useState({}); // userId → 건 아래 안내 한 줄
   const [ask, setAsk] = useState(null); // { item, extra, warnings }
   const [skipped, setSkipped] = useState([]);
+  const [nudge, setNudge] = useState(false);
+  const asked = useRef(false);
 
   const load = async () => {
     try {
       const [a, r] = await Promise.all([api('GET', `${base}/approvals`), api('GET', base)]);
       setItems(a); setRows(r); onCount?.(a.length);
+      if (a.length > 0 && !asked.current) { // 첫 승인 대기가 보일 때 한 번 — 보일 차례인지는 서버가 정한다(권유는 학교에서 한 번뿐)
+        asked.current = true;
+        api('POST', `${base}/contact-nudge`).then((n) => { if (n.show) setNudge(true); }).catch(() => {});
+      }
     } catch (e) { setErr(e.message); setItems((x) => x ?? []); }
   };
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -98,6 +105,7 @@ export default function Approve({ orgId, onCount, onChanged }) {
   return (
     <Stack>
       <Text size="sm">{t('roster.approve.lead')}</Text>
+      {nudge && <ContactNudge orgId={orgId} onClose={() => setNudge(false)} />}
       {err && <Alert color="red" withCloseButton onClose={() => setErr('')}>{err}</Alert>}
       {msg && <Alert color="green" withCloseButton onClose={() => setMsg('')}>{msg}</Alert>}
       {skipped.length > 0 && (

@@ -12,6 +12,7 @@ import { t } from '../../shared/text/index.js';
 import { requireLogin } from '../guard.js';
 import { passwordProblem } from '../passwords.js';
 import { audit } from '../audit.js';
+import { orgContact } from '../orgContact.js';
 import { ARGON, ID_RE, moveInFrom, moveOut } from '../accounts.js';
 import { matchPerson } from '../match.js';
 import { notify } from '../notify.js';
@@ -240,10 +241,17 @@ export function signupRouter(pool, opts = {}) {
         [uid],
       )).rows[0];
       const noOrg = req.session.noOrg ?? (await noOrgKind(pool, { id: uid, dormant_at: u?.dormant_at }));
+      // 기관 관리자 연락처 — 이 사람이 닿은 학교 것만(승인 대기 줄 · 연결 해제 줄). 코드 없이 가입한 사람은 어느 학교인지 몰라 없다
+      let orgId = row?.org_id ?? null;
+      if (orgId == null && noOrg === 'unlinked') {
+        orgId = (await pool.query(
+          `SELECT org_id FROM unlinked_account WHERE user_id = $1 AND reason = 'unlinked' AND resolved_at IS NULL AND expires_at > now() ORDER BY id DESC LIMIT 1`, [uid])).rows[0]?.org_id ?? null;
+      }
+      const orgC = await orgContact(pool, orgId);
       res.json({
         noOrg,
         pending: row ? { orgName: row.org_name, expiresAt: row.expires_at, avgDays: await avgApprovalDays(pool, row.org_id) } : null,
-        contacts: await publicContacts(pool), // 승인 대기 화면의 연락처 줄
+        contacts: { ...(orgC ? { org: orgC } : {}), ...(await publicContacts(pool)) }, // 승인 대기·연결 해제 화면의 연락처 줄(기관 · 총괄 따로)
         everLinked: !!u?.first_linked_at, // 7일 문구: false 면 「다시 가입」 · true 면 「코드를 다시 받아야」
       });
     } catch (e) { next(e); }

@@ -28,6 +28,7 @@ const configIn = z.object({
     maxConsec: z.number().int().min(1).max(12), dailySubjectCap: z.number().int().min(1).max(12), amTolerance: z.number().int().min(0).max(40), maxPerDay: z.number().int().min(1).max(12),
     teacherDayMode: z.enum(['분산', '몰기']), earlyTiers: z.array(z.number().int().min(1).max(3)).max(3), lunchAfter: z.number().int().min(1).max(12),
   }).partial(),
+  contact: z.string().trim().max(100),
   roomCapacity: z.object({ count: z.enum(['students', 'classes']) }).partial(),
   secondTeacher: z.object({ inSubstitute: z.boolean(), inSoftScore: z.boolean() }).partial().strict(),
   features: z.object(Object.fromEntries(FEATURE_KEYS.map((k) => [k, z.boolean()]))).partial().strict(), // 모르는 스위치 키는 400

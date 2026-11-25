@@ -29,7 +29,7 @@ export default function PendingScreen({ user, onLogout, onSession }) {
   const avgVars = pending && { 일수: pending.avgDays }; // 문구-예외: 문구 변수 이름
   const idVars = { 아이디: loginId }; // 문구-예외: 문구 변수 이름
   const contactVars = (v) => ({ 연락처: v }); // 문구-예외: 문구 변수 이름
-  const contacts = data?.contacts || {}; // 서버에 연락처 칸이 생기면 { org, super } 가 온다 — 지금은 비어 안 보인다
+  const contacts = data?.contacts || {}; // 서버가 { org?, super? } 를 준다 — 적혀 있는 것만 오고 비면 그 줄이 안 보인다(기관 것은 닿은 학교 것만)
 
   async function copy() {
     try {
@@ -65,6 +65,7 @@ export default function PendingScreen({ user, onLogout, onSession }) {
                 {copied === 'ok' && <Text size="sm" c="teal">{t('signup.copy.done')}</Text>}
                 {copied === 'fail' && <Alert color="yellow">{t('signup.copy.fail')}</Alert>}
                 {manual && <Textarea readOnly autosize value={manual} onFocus={(e) => e.currentTarget.select()} />}
+                {contacts.org && <Text size="sm">{t('signup.pending.contact_org', contactVars(contacts.org))}</Text>}
                 {contacts.super && <Text size="sm">{t('signup.pending.contact_super', contactVars(contacts.super))}</Text>}
               </>
             )}
