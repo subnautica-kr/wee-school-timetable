@@ -6,7 +6,7 @@ import { t } from '../T.jsx';
 import { OUT_TAB_FEATURE, visibleTabs } from '../features.js';
 
 // 출력 — 내려받기(PDF·엑셀·HWPX) · 급식 벽시계 · 반 비교 · 담임 과목 올리기
-export default function Output({ P, admin }) {
+export default function Output({ P, admin, onGoSetup }) {
   // 출력(output)과 담임 과목 올리기(import)는 스위치가 따로다. 꺼진 탭은 숨기고 첫 탭은 켜진 첫째.
   const on = visibleTabs(OUT_TAB_FEATURE, useOrgConfig(P).features, ['down', 'lunch', 'cmp', ...(admin ? ['homeroom'] : [])]);
   const has = (t) => on.includes(t);
@@ -21,7 +21,7 @@ export default function Output({ P, admin }) {
       {has('down') && <Tabs.Panel value="down"><Download P={P} admin={admin} /></Tabs.Panel>}
       {has('lunch') && <Tabs.Panel value="lunch"><LunchClock P={P} /></Tabs.Panel>}
       {has('cmp') && <Tabs.Panel value="cmp"><Compare P={P} /></Tabs.Panel>}
-      {has('homeroom') && <Tabs.Panel value="homeroom"><HomeroomUpload P={P} /></Tabs.Panel>}
+      {has('homeroom') && <Tabs.Panel value="homeroom"><HomeroomUpload P={P} onGoSetup={onGoSetup} /></Tabs.Panel>}
     </Tabs>
   );
 }
@@ -196,7 +196,7 @@ function Compare({ P }) {
 }
 
 // 담임 과목 취합본 올리기 — 읽은 줄은 초록, 못 읽은 줄은 빨강(거부 아님). 읽은 줄만 시수표에 넣는다.
-function HomeroomUpload({ P }) {
+function HomeroomUpload({ P, onGoSetup }) {
   const [pv, setPv] = useState(null);
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
@@ -219,6 +219,7 @@ function HomeroomUpload({ P }) {
       <Group>
         <Button component="label" variant="default">파일 고르기<input type="file" hidden accept=".xlsx,.hwpx" onChange={pick} /></Button>
         <Button variant="subtle" onClick={() => download(`${P}/homeroom-subjects/template`, 'homeroom-template.xlsx').catch((e) => setErr(e.message))}>엑셀 양식 받기</Button>
+        <SetupLink step="loads" onGo={onGoSetup} />
       </Group>
       {err && <Alert color="red">{err}</Alert>}
       {msg && <Alert color="green">{msg}</Alert>}

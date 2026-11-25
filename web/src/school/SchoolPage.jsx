@@ -17,6 +17,7 @@ import LoadUpload from './LoadUpload.jsx';
 import { findPerson, withCurrent, markedName, vacantText } from '../grid/vacant.js';
 import SpecialRooms, { warnTexts } from './SpecialRooms.jsx';
 import SchoolSetup from './SchoolSetup.jsx';
+import SetupLink from './SetupLink.jsx';
 import { t } from '../../../shared/text/index.js';
 
 function useLoad(path) {
@@ -562,7 +563,7 @@ function Rules({ P, admin }) {
 // 하위 탭 첫 방문 카드 — 그 탭 기능(loads·pins·levels) 소개. 메뉴 안내와 따로 한 번씩
 const TabIntro = ({ tab, user, features }) => <MenuIntro menu={`school:${tab}`} pitchKey={SCHOOL_TAB_FEATURE[tab]} user={user} features={features} />;
 
-export default function SchoolPage({ user, goTab, focus }) {
+export default function SchoolPage({ user, goTab, focus, setupGo }) {
   const P = `/orgs/${user.orgId}`;
   const admin = user.role === '기관관리자';
   // 기관 스위치로 꺼진 탭은 숨기고, 첫 탭은 켜진 것 중 첫째(Tabs 가 defaultValue 를 처음에만 읽어 key 로 다시 세운다)
@@ -571,6 +572,9 @@ export default function SchoolPage({ user, goTab, focus }) {
   const has = (t) => on.includes(t);
   const [tab, setTab] = useState(admin ? 'setup' : null);
   useEffect(() => { if (focus) setTab('loads'); }, [focus]); // 「빈 것 목록」으로 오라는 말이 오면 시수표 탭으로
+  const [go, setGo] = useState(setupGo || null); // {k, n} — 옛 올리기 자리에서 단계 화면으로 가라는 말
+  useEffect(() => { if (setupGo) { setGo(setupGo); setTab('setup'); } }, [setupGo]);
+  const goSetup = admin ? (k) => { setGo({ k, n: Date.now() }); setTab('setup'); } : undefined;
   const cur = tab && (tab === 'setup' || has(tab)) ? tab : on[0];
   // 7단계 화면의 「직접 고치는 화면」 링크 — 학교 자료 안 탭은 여기서 옮기고, 바깥 탭(명단·특별실·자동 생성)은 윗줄 탭을 바꾸는 goTab 으로 옮긴다
   const INNER = { school: 'basic', loads: 'loads', pins: 'pins' };
@@ -589,12 +593,13 @@ export default function SchoolPage({ user, goTab, focus }) {
         {has('pins') && <Tabs.Tab value="pins">고정·금지</Tabs.Tab>}
         {has('rules') && <Tabs.Tab value="rules">규칙 수위</Tabs.Tab>}
       </Tabs.List>
-      {admin && <Tabs.Panel value="setup" pt="md"><SchoolSetup P={P} goOld={goOld} /></Tabs.Panel>}
+      {admin && <Tabs.Panel value="setup" pt="md"><SchoolSetup P={P} goOld={goOld} go={go} /></Tabs.Panel>}
       {has('basic') && <Tabs.Panel value="basic" pt="md"><Basics P={P} admin={admin} /></Tabs.Panel>}
       {has('spec') && <Tabs.Panel value="spec" pt="md"><Specialists P={P} admin={admin} /></Tabs.Panel>}
-      {has('loads') && <Tabs.Panel value="loads" pt="md"><TabIntro tab="loads" user={user} features={features} /><Text size="sm" c="dimmed" mb="sm"><Term k="시수표">시수표</Term>: 누가·어느 반에·무슨 과목을·주 몇 시간 가르치는지 적은 표입니다(낱말을 누르면 풀이).</Text><Loads P={P} admin={admin} focus={focus} /></Tabs.Panel>}
+      {has('loads') && <Tabs.Panel value="loads" pt="md"><TabIntro tab="loads" user={user} features={features} /><Text size="sm" c="dimmed" mb="sm"><Term k="시수표">시수표</Term>: 누가·어느 반에·무슨 과목을·주 몇 시간 가르치는지 적은 표입니다(낱말을 누르면 풀이).</Text><SetupLink step="loads" onGo={goSetup} /><Loads P={P} admin={admin} focus={focus} /></Tabs.Panel>}
       {has('pins') && <Tabs.Panel value="pins" pt="md">
         <TabIntro tab="pins" user={user} features={features} />
+        <SetupLink step="pins" onGo={goSetup} />
         <Tabs defaultValue="교사" keepMounted={false}>
           <Tabs.List>{['교사', '반', '특별실'].map((k) => <Tabs.Tab key={k} value={k}>{k}</Tabs.Tab>)}</Tabs.List>
           {['교사', '반', '특별실'].map((k) => <Tabs.Panel key={k} value={k} pt="md"><Pins P={P} admin={admin} kind={k} /></Tabs.Panel>)}
