@@ -7,6 +7,8 @@ import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 import { todayStr } from '../today.js';
 import { featureOn } from '../features.js';
 import { EmptyHint, Finger } from './Guide.jsx';
+import T from '../T.jsx';
+import { quickPeriods, hasSchoolClasses } from './quickDefaults.js';
 import { ClearTermButton } from '../settings/DangerZone.jsx';
 import { emptyCount, confirmText } from '../../../shared/ttConfirm.js';
 import { outsideCells, periodsMax, periodsOn } from '../../../shared/periods.js';
@@ -22,7 +24,11 @@ const todayDay = (n) => { const w = new Date().getDay(); const k = w === 0 ? 7 :
 // 빠른 시작 — 반 수와 교시 수만 묻고 학기·반·교시틀·빈 시안을 한 번에 만든다. 선생님·시수는 나중.
 function QuickStart({ P, onDone }) {
   const [cls, setCls] = useState({ 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1 });
-  const [per, setPer] = useState({ 1: 5, 2: 5, 3: 6, 4: 6, 5: 6, 6: 6 });
+  const [per, setPer] = useState(quickPeriods(null));
+  const [fromSchool, setFromSchool] = useState(false);
+  const [schoolClasses, setSchoolClasses] = useState(null); // null=읽는 중 · true/false=학교 기본에 반이 있나(있으면 상자 없이 단추 하나)
+  useEffect(() => { let off = false; api('GET', `${P}/classrooms`).then((l) => { if (!off) setSchoolClasses(hasSchoolClasses(l)); }).catch(() => { if (!off) setSchoolClasses(false); }); return () => { off = true; }; }, [P]);
+  useEffect(() => { let off = false; api('GET', `${P}/school/periods`).then((c) => { if (!off && c?.grades) { setPer(quickPeriods(c)); setFromSchool(true); } }).catch(() => {}); return () => { off = true; }; }, [P]); // 학교 값이 없거나 못 읽으면 고정값 그대로
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [blocked, setBlocked] = useState(false); // 이번 학기에 이미 반이 있어 서버가 막음(409 exists)
@@ -30,7 +36,21 @@ function QuickStart({ P, onDone }) {
     setBusy(true); setError(''); setBlocked(false);
     try { await api('POST', `${P}/quick-start`, { classes: cls, periods: per }); onDone(); } catch (e) { setError(e.message); setBlocked(!!e.body?.exists); setBusy(false); }
   };
+  const goSchool = async () => {
+    setBusy(true); setError('');
+    try { await api('POST', `${P}/quick-start`, {}); onDone(); } catch (e) { setError(e.message); setBusy(false); }
+  };
   const total = GRADES.reduce((a, g) => a + (cls[g] || 0), 0);
+  if (schoolClasses === null) return null;
+  if (schoolClasses) return (
+    <Card withBorder maw={420}>
+      <Stack gap="xs">
+        {error && <Alert color="red">{error}</Alert>}
+        <Text size="sm"><T k="grid.quick_school.only" /></Text>
+        <Button disabled={busy} onClick={goSchool} data-testid="quick-school-btn"><T k="grid.quick_school.button" /></Button>
+      </Stack>
+    </Card>
+  );
   return (
     <Card withBorder maw={420}>
       <Stack gap="xs">
@@ -48,6 +68,7 @@ function QuickStart({ P, onDone }) {
               <Table.Td><NumberInput aria-label={`${g}학년 반 수`} min={0} max={30} w={90} value={cls[g]} onChange={(v) => setCls({ ...cls, [g]: Number(v) || 0 })} /></Table.Td>
               <Table.Td><NumberInput aria-label={`${g}학년 교시 수`} min={1} max={10} w={90} value={per[g]} onChange={(v) => setPer({ ...per, [g]: Number(v) || 1 })} /></Table.Td></Table.Tr>
           ))}</Table.Tbody></Table>
+        {fromSchool && <Text size="xs" c="dimmed"><T k="grid.quick.school_hint" /></Text>}
         <Button disabled={busy || !total} onClick={go}>만들기</Button>
         <Text size="xs" c="dimmed">선생님·시수·자동 생성은 나중에 필요할 때 켜면 됩니다</Text>
       </Stack>
