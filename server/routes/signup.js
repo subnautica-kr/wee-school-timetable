@@ -53,7 +53,7 @@ const CODE_SELECT = `SELECT c.id, c.kind, c.org_id, c.membership_id, o.name AS o
        FROM invite_code c
        JOIN membership m ON m.id = c.membership_id AND m.deleted_at IS NULL
        JOIN org o ON o.id = c.org_id AND o.deleted_at IS NULL AND o.status = $2
-      WHERE c.code = $1 AND c.used_at IS NULL AND c.revoked_at IS NULL AND c.expires_at > now()`;
+      WHERE upper(c.code) = upper($1) AND c.used_at IS NULL AND c.revoked_at IS NULL AND c.expires_at > now()`;
 const CODE_SELECT_LOCK = CODE_SELECT + ' FOR UPDATE OF c';
 async function findLiveCode(db, code, lock = false) {
   const row = (await db.query(lock ? CODE_SELECT_LOCK : CODE_SELECT, [code, ORG_STATUS.USE])).rows[0];
