@@ -64,7 +64,7 @@ test('기관 경계(전 경로): A 세션으로 B 기관·B 자원을 두드리�
   let hit = 0;
   const fails = [];
   for (const r of list) {
-    if (r.file === 'auth.js') continue; // 로그인 전 경로 — 기관 자원 없음
+    if (r.file === 'auth.js' || r.file === 'signup.js') continue; // 로그인 전·학교 없는 세션 경로 — 기관 자원 없음
     const s = sub(r);
     const body = BODY[`${r.method} ${s}`];
     const query = QUERY[s] ?? '';
