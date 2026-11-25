@@ -140,8 +140,8 @@ export default function Roster({ orgId, onGoSetup }) {
   const preBad = (r) => !r.name.trim() ? '이름 없음' : r.role && !ROLES.includes(r.role.trim()) ? '역할 모름' : '';
   const preOdd = (r) => { const t = (r.duty || '').trim(); return t && !cfg.duties.includes(t) && !/담임|전담|비교과/.test(t) ? '담당 구분 목록 밖' : ''; };
 
-  const actions = (m) => (
-    <Group gap="xs" wrap="nowrap">
+  const actions = (m, wrap = 'nowrap') => (
+    <Group gap="xs" wrap={wrap}>
       {m.hasAccount
         ? <Button size="xs" variant="default" disabled={busy} onClick={() => setUnlinkAsk(m)}>{t('roster.unlink.menu')}</Button>
         : <Button size="xs" variant="default" disabled={busy} onClick={() => setLinkLine(m)}>{t('roster.link.menu')}</Button>}
@@ -227,7 +227,7 @@ export default function Roster({ orgId, onGoSetup }) {
               <div>{stateBadge(m)}</div>
             </Group>
             <Text size="xs" c="dimmed" mb={4}>{showAccount && `${t('roster.account.col')} ${loginCell(m)}${m.isConcurrent ? ` (${concText(m)})` : ''} · `}{m.birthDate && `${m.birthDate} · `}{t('roster.col.classes')} {hv.byMember[m.id] || '-'} · {t('roster.col.last')} {m.lastLogin ? new Date(m.lastLogin).toLocaleString('ko-KR') : '-'}</Text>
-            <Stack gap={6}>{roleSel(m)}{statusSel(m)}<Group gap="xs">{actions(m)}</Group></Stack>
+            <Stack gap={6}>{roleSel(m)}{statusSel(m)}{actions(m, 'wrap')}</Stack>
           </Paper>
         ))}
       </Stack>

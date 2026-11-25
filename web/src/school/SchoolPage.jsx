@@ -421,7 +421,7 @@ function Loads({ P, admin, focus }) {
   });
   const patch = (l, body) => guard(() => api('PATCH', `${P}/loads/${l.id}`, body))();
   const remove = async (l) => {
-    const who = nm(people, 'membership_id', l.membership_id)?.name ?? findPerson(l.membership_id, [], d?.inactive_teachers)?.name ?? '교사 비어 있음';
+    const who = nm(people, 'membership_id', l.membership_id)?.name ?? findPerson(l.membership_id, [], d?.inactive_teachers)?.name ?? t('school.vacant.teacher_empty');
     const c = nm(classes, 'id', l.classroom_id);
     if (!(await ask(`이 줄을 지울까요?\n${who} · ${nm(subjects, 'id', l.subject_id)?.name ?? '교과 비어 있음'} · ${c ? `${c.grade}-${c.class_no}` : '모든 반'} · ${l.weekly_hours}시수`, { yes: '지우기' }))) return;
     guard(() => api('DELETE', `${P}/loads/${l.id}`))();
@@ -434,17 +434,17 @@ function Loads({ P, admin, focus }) {
       {notes.map((m, i) => <Alert key={i} color="yellow">{m}</Alert>)}
       {(d?.alerts || []).map((a, i) => <MissingBox key={i} a={a} />)}
       {admin && <LoadUpload P={P} onDone={reload} />}
-      <Table className="card-table"><Table.Tbody>
+      <Table.ScrollContainer minWidth={0} type="native"><Table className="card-table"><Table.Tbody>
         {(d?.lines || []).map((l) => (
           <Table.Tr key={l.id} bg={l.incomplete ? 'yellow.0' : undefined}>
             {admin ? (
               <>
-                <Table.Td><Select aria-label="교사" placeholder="(교사 비어 있음)" clearable searchable data={withCurrent(opt(people, { v: (x) => x.membership_id, l: (x) => x.name }), l.membership_id, d?.inactive_teachers, (x) => markedName(x.name))} value={l.membership_id ? String(l.membership_id) : null} onChange={(v) => patch(l, { membership_id: v ? Number(v) : null })} w={190} /></Table.Td>
+                <Table.Td><Select aria-label="교사" placeholder={`(${t('school.vacant.teacher_empty')})`} clearable searchable data={withCurrent(opt(people, { v: (x) => x.membership_id, l: (x) => x.name }), l.membership_id, d?.inactive_teachers, (x) => markedName(x.name))} value={l.membership_id ? String(l.membership_id) : null} onChange={(v) => patch(l, { membership_id: v ? Number(v) : null })} w={190} /></Table.Td>
                 <Table.Td><Select aria-label="교과" placeholder="(교과 비어 있음)" clearable data={opt(subjects, { v: (x) => x.id, l: (x) => x.name })} value={l.subject_id ? String(l.subject_id) : null} onChange={(v) => patch(l, { subject_id: v ? Number(v) : null })} w={130} /></Table.Td>
               </>
             ) : (
               <>
-                <Table.Td>{(() => { const who = findPerson(l.membership_id, (people || []).map((x) => ({ id: x.membership_id, name: x.name })), d?.inactive_teachers); return who ? (who.vacant ? markedName(who.name) : who.name) : '(교사 비어 있음)'; })()}</Table.Td>
+                <Table.Td>{(() => { const who = findPerson(l.membership_id, (people || []).map((x) => ({ id: x.membership_id, name: x.name })), d?.inactive_teachers); return who ? (who.vacant ? markedName(who.name) : who.name) : `(${t('school.vacant.teacher_empty')})`; })()}</Table.Td>
                 <Table.Td>{nm(subjects, 'id', l.subject_id)?.name ?? '(교과 비어 있음)'}</Table.Td>
               </>
             )}
@@ -477,7 +477,7 @@ function Loads({ P, admin, focus }) {
             <Table.Td>{admin && <Button size="xs" variant="subtle" color="red" onClick={() => remove(l)}>지우기</Button>}</Table.Td>
           </Table.Tr>
         ))}
-      </Table.Tbody></Table>
+      </Table.Tbody></Table></Table.ScrollContainer>
       {admin && (
         <Group align="end">
           <Select placeholder="교사" clearable searchable data={opt(people, { v: (x) => x.membership_id, l: (x) => x.name })} value={row.m ?? null} onChange={(v) => setRow({ ...row, m: v })} w={130} />
