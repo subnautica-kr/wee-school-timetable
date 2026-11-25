@@ -717,8 +717,9 @@ export function rosterRouter(pool) {
         const r = await linkAccount(c, { membershipId: mid, userId: l.userId, byUserId });
         out.push(r.error ? { ...l, id: mid, done: false, code: r.error, msg: t(r.error) } : { ...l, id: mid, done: true });
       } else {
-        const has = (await c.query(`SELECT 1 FROM transfer_request WHERE user_id = $1 AND to_org = $2 AND status = $3`, [l.userId, orgId, TRANSFER_STATUS.WAITING])).rows[0];
-        if (!has) await c.query(`INSERT INTO transfer_request (from_org, to_org, user_id, to_membership_id, created_by) VALUES ($1,$2,$3,$4,$5)`, [l.fromOrg, orgId, l.userId, mid, byUserId]);
+        // 전출 요청 — 보내는 학교가 자동 승인을 켰으면 requestTransfer 가 그 자리에서 승인한다(T-1322b①)
+        const tr = await requestTransfer(c, { fromOrg: l.fromOrg, toOrg: orgId, userId: l.userId, toMembershipId: mid, byUserId });
+        if (tr.error) { out.push({ ...l, id: mid, done: false, code: tr.error, msg: t(tr.error) }); continue; }
         out.push({ ...l, id: mid, done: true });
       }
     }
