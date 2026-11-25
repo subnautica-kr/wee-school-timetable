@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 import { t } from '../../shared/text/index.js';
 import { dutyFromText, loadConfig } from '../orgConfig.js';
 import { loadsSpec, pinsSpec } from './loadsImport.js';
+import { gradeSpec, roomsSpec } from './schoolImport.js';
 
 // 담임 과목 취합본 읽기 — 엑셀(.xlsx) · 한글(.hwpx). 못 읽은 줄은 버리지 않고 ok:false 로 돌려 화면이 빨강으로 보인다.
 export const TEMPLATE_HEADER = ['학년', '반', '교과', '주당 시수'];
@@ -123,8 +124,14 @@ export const rosterSpec = {
 };
 
 // 되돌리기 허용 집합의 출처 — 명단·시수표·고정금지(앞 둘은 loadsImport.js)
-export const EXCEL_SPECS = [rosterSpec, loadsSpec, pinsSpec];
-const allowedCols = () => new Map(EXCEL_SPECS.map((s) => [s.table, new Set([...s.cols.flatMap((c) => c.dbcols), 'deleted_at'])]));
+export { gradeSpec, roomsSpec };
+export const EXCEL_SPECS = [rosterSpec, loadsSpec, pinsSpec, gradeSpec, roomsSpec];
+// 스펙의 undo({ 표: [칸] })는 write() 가 남긴 기록을 되돌릴 때만 더 허용하는 표·칸이다
+const allowedCols = () => {
+  const m = new Map(EXCEL_SPECS.map((s) => [s.table, new Set([...s.cols.flatMap((c) => c.dbcols), 'deleted_at'])]));
+  for (const sp of EXCEL_SPECS) for (const [tb, cols] of Object.entries(sp.undo ?? {})) m.set(tb, new Set([...(m.get(tb) ?? ['deleted_at']), ...cols]));
+  return m;
+};
 
 // specs·data → 엑셀. data[spec.name] = spec.rows() 결과. 맨 앞 열은 관리 번호, 지울 수 있는 시트는 맨 끝에 「지움」.
 export async function makeWorkbook(specs, data) {
@@ -228,7 +235,10 @@ export async function applyPlans(client, orgId, userId, plans, { remove = false 
     for (const [kind, x] of steps) {
       await client.query('SAVEPOINT excel_row');
       try {
-        if (kind === 'add') {
+        if (p.spec.write) {
+          await p.spec.write(client, orgId, x, ctx, item);
+          out[kind === 'add' ? 'added' : 'changed']++;
+        } else if (kind === 'add') {
           const id = await p.spec.insert(client, orgId, x.set, ctx);
           const now = {};
           for (const col of dbcols) now[col] = await readCol(id, col);
@@ -271,7 +281,8 @@ export async function undoExcel(client, orgId, batchId) {
     const table = [...allow.keys()].find((k) => k === it.table_name);
     if (!table) continue;
     const okCols = [...allow.get(table)];
-    const readCol = async (col) => (await client.query(`SELECT ${col}::text AS v FROM ${table} WHERE id = $1 AND org_id = $2`, [it.row_id, orgId])).rows[0]?.v ?? null;
+    const isOrg = table === 'org'; // 기관 표는 줄 번호가 곧 기관 번호 — 기관 칸이 따로 없다
+    const readCol = async (col) => (await client.query(isOrg ? `SELECT ${col}::text AS v FROM org WHERE id = $1 AND id = $2` : `SELECT ${col}::text AS v FROM ${table} WHERE id = $1 AND org_id = $2`, [it.row_id, orgId])).rows[0]?.v ?? null;
     const skip = (column) => out.skipped.push({ table, rowId: Number(it.row_id), column });
     if (it.column_name == null) {
       // 넣은 줄 — 넣은 뒤 그대로면 표시 삭제, 그사이 누가 고쳤으면 둔다
@@ -288,7 +299,7 @@ export async function undoExcel(client, orgId, batchId) {
     const col = okCols.find((c) => c === it.column_name);
     if (!col) continue;
     if ((await readCol(col)) !== JSON.parse(it.new_value)) { skip(col); continue; }
-    await client.query(`UPDATE ${table} SET ${col} = $1 WHERE id = $2 AND org_id = $3`, [JSON.parse(it.old_value), it.row_id, orgId]);
+    await client.query(isOrg ? `UPDATE org SET ${col} = $1 WHERE id = $2 AND id = $3` : `UPDATE ${table} SET ${col} = $1 WHERE id = $2 AND org_id = $3`, [JSON.parse(it.old_value), it.row_id, orgId]);
     out.undone++;
   }
   await client.query(`UPDATE delete_batch SET restored_at = now() WHERE id = $1`, [batchId]);
