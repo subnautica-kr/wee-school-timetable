@@ -15,6 +15,7 @@ import OrgConfig from '../settings/OrgConfig.jsx';
 import BackupButton from './BackupButton.jsx';
 import TrashBox from './TrashBox.jsx';
 import VersionHistory from './VersionHistory.jsx';
+import Bell, { HelpRequestButton } from './Bell.jsx';
 import { hasNewVersion } from '../changelog.js';
 import { readSeenVersion, writeSeenVersion } from '../seenVersion.js';
 import FeatureBoard from '../settings/FeatureBoard.jsx';
@@ -176,6 +177,7 @@ export default function Screens({ user, onLogout, onUser }) {
         <Title order={3}>{user.name}님</Title>
         <Group className="no-print">
           {mems.length > 1 && <Select aria-label="기관 바꾸기" data={mems.map((m) => ({ value: String(m.orgId), label: m.name }))} value={String(user.orgId)} onChange={switchOrg} allowDeselect={false} w={200} />}
+          {!user.mustChange && <><HelpRequestButton /><Bell onGoTab={inOrg ? goTab : undefined} onGoMe={inOrg ? () => goTab('me') : undefined} /></>}
           {inOrg && <Button variant="default" onClick={() => setHelp(true)}>도움말</Button>}
           <Button variant="default" onClick={onLogout}>로그아웃</Button>
         </Group>
