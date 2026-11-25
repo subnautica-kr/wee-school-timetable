@@ -14,6 +14,7 @@ import { MenuIntro } from '../grid/Guide.jsx';
 import { useConfirm } from '../Confirm.jsx';
 import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 import LoadUpload from './LoadUpload.jsx';
+import { t } from '../../../shared/text/index.js';
 
 function useLoad(path) {
   const [data, setData] = useState(null);
@@ -252,6 +253,14 @@ function Basics({ P, admin }) {
   const [count, setCount] = useState(3);
   const [room, setRoom] = useState({ name: '', purpose: '수업용' });
   const [error, setError] = useState('');
+  // 반 줄이기 — 고른 학년의 맨 뒤 반(반 번호가 가장 큰 반) 하나를 지우기 창(딸린 것 미리보기)으로 지운다
+  const gradeVar = { 학년: grade }; // 문구-예외: 문구 변수 이름
+  const shrink = () => {
+    const mine = (classes || []).filter((c) => c.grade === Number(grade));
+    if (!mine.length) { setError(t('school.class.shrink_none', gradeVar)); return; }
+    const last = mine.reduce((a, b) => (b.class_no > a.class_no ? b : a));
+    del(cascadeOpts(P, 'classroom', last.id, `${last.grade}-${last.class_no}반`, `${P}/classrooms/${last.id}`, { lead: t('school.class.shrink_lead'), onDone: reloadC })); // 문구-예외: 반 이름 꼴(236줄과 같다)
+  };
   const run = (fn) => async () => { setError(''); try { await fn(); } catch (e) { setError(e.message); } };
   const grades = cfg?.grades || {};
   const [saved, setSaved] = useState('');
@@ -270,6 +279,7 @@ function Basics({ P, admin }) {
           <NumberInput label="학년" description={`기관 기준 ${org.limits.grades}`} min={1} value={grade} onChange={setGrade} w={80} />
           <NumberInput label="반 수" description={`반 번호 ${org.limits.classNo}까지`} min={1} value={count} onChange={setCount} w={80} />
           <Button mt={24} onClick={run(async () => { await api('POST', `${P}/classrooms/bulk`, { grade, count }); reloadC(); })}>반 만들기</Button>
+          <Button mt={24} variant="default" color="red" onClick={shrink}>{t('school.class.shrink_button', gradeVar)}</Button>
         </Group>
       )}
       <Group gap="xs"><Text fw={600}>학년별 교시 · 점심</Text>{saved && <Badge variant="light" color={saved === '저장됨' ? 'green' : 'gray'}>{saved}</Badge>}</Group>
@@ -442,16 +452,19 @@ function Pins({ P, admin, kind }) {
   const [subjects] = useLoad(`${P}/subjects`);
   const [f, setF] = useState({ kind: '금지', weekday: '1', period: 1 });
   const [error, setError] = useState('');
+  const [ask, box] = useConfirm();
   const add = () => api('POST', `${P}/pins`, { target_kind: kind, target_id: Number(f.t), weekday: Number(f.weekday), period: f.period, kind: f.kind, subject_id: kind === '반' && f.kind === '고정' && f.s ? Number(f.s) : null }).then(reload).catch((e) => setError(e.message));
-  const label = (id) => targets.find((t) => t.value === String(id))?.label ?? id;
+  const label = (id) => targets.find((x) => x.value === String(id))?.label ?? id;
+  const delAsk = (p) => t('school.pin.delete_ask', { 종류: p.kind, 대상: label(p.target_id), 요일: DAYS[p.weekday - 1], 교시: p.period }); // 문구-예외: 문구 변수 이름
   return (
     <Stack>
+      {box}
       <Err e={err || error} />
       {(pins || []).map((p) => (
         <Group key={p.id}>
           <Badge color={p.kind === '고정' ? 'blue' : 'gray'}>{p.kind}</Badge>
           <Text size="sm">{label(p.target_id)} · {DAYS[p.weekday - 1]} {p.period}교시{p.subject_id ? ` · ${(subjects || []).find((x) => x.id === p.subject_id)?.name ?? ''}` : (kind === '반' && p.kind === '고정' ? ' · 교과 없음(그 칸은 비워 둠)' : '')}</Text>
-          {admin && <Button size="xs" variant="subtle" color="red" onClick={() => api('DELETE', `${P}/pins/${p.id}`).then(reload)}>지우기</Button>}
+          {admin && <Button size="xs" variant="subtle" color="red" onClick={async () => { if (!(await ask(delAsk(p), { yes: t('school.pin.delete_yes') }))) return; api('DELETE', `${P}/pins/${p.id}`).then(reload).catch((e) => setError(e.message)); }}>지우기</Button>}
         </Group>
       ))}
       {admin && (

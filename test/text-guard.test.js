@@ -166,3 +166,18 @@ test('text-scan: 토크나이저가 주석·문구-예외 줄은 빼고 리터�
   assert.deepEqual(scanSource(src, true).map((i) => [i.line, i.s, i.kind]), [[2, '하나', 'str'], [3, '셋 ${x}', 'tpl'], [4, '넷', 'jsx'], [4, '다섯', 'jsx']]);
   assert.ok(ROOT);
 });
+
+test('text-guard: _자리 는 「화면 › 창·단추 › 언제」 세 토막(T-1316b · 설계 7절)', async () => {
+  const { jariProblem } = await import('../scripts/text-sheet.js');
+  const bad = [];
+  for (const file of textFiles()) {
+    if (file === 'glossary.js') continue;
+    const obj = readTextFile(file);
+    for (const [g, grp] of Object.entries(obj)) {
+      if (g.startsWith('_') || !grp || typeof grp !== 'object') continue;
+      const p = jariProblem(grp._자리, obj._영역);
+      if (p) bad.push(`${file}: ${g} — ${p}`);
+    }
+  }
+  assert.deepEqual(bad, []);
+});
