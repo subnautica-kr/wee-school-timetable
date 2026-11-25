@@ -14,6 +14,7 @@ import { MenuIntro } from '../grid/Guide.jsx';
 import { useConfirm } from '../Confirm.jsx';
 import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 import LoadUpload from './LoadUpload.jsx';
+import { findPerson, withCurrent, markedName, vacantText } from '../grid/vacant.js';
 import SpecialRooms, { warnTexts } from './SpecialRooms.jsx';
 import SchoolSetup from './SchoolSetup.jsx';
 import { t } from '../../../shared/text/index.js';
@@ -339,7 +340,44 @@ function MissingBox({ a }) {
   );
 }
 
-function Loads({ P, admin }) {
+// 담당이 빈 담임·수업 목록 — 재직이 아닌 선생님이 맡은 것. 각 줄에서 다른 선생님을 바로 고른다(고르는 목록엔 재직 선생님만).
+function VacantBox({ P, admin, people, focus, onChanged }) {
+  const [v, setV] = useState(null);
+  const [err, setErr] = useState('');
+  const ref = useRef(null);
+  const load = () => api('GET', `${P}/loads/vacant`).then(setV).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, [P]); // eslint-disable-line
+  useEffect(() => { if (focus && v) ref.current?.scrollIntoView({ block: 'start' }); }, [focus, !!v]); // eslint-disable-line
+  const total = v ? v.homerooms.length + v.loads.length : 0;
+  const data = (people || []).map((x) => ({ value: String(x.membership_id), label: x.name }));
+  const who = vacantText.who;
+  const set = async (call) => { setErr(''); try { await call(); await load(); onChanged?.(); } catch (e) { setErr(e.message); } };
+  if (!v || total === 0) return err ? <Alert color="red">{err}</Alert> : null;
+  return (
+    <div ref={ref} data-testid="vacant-box">
+      <Alert color="yellow" title={vacantText.title(total)}>
+        <Stack gap="xs">
+          <Text size="sm">{t('school.vacant.hint')}</Text>
+          {err && <Text size="sm" c="red">{err}</Text>}
+          {v.homerooms.map((h) => (
+            <Group key={`h${h.classroom_id}`} gap="xs" data-testid="vacant-row">
+              <Text size="sm" w={260}>{vacantText.homeroom(h)} · {who(h)}</Text>
+              {admin && <Select aria-label={t('school.vacant.pick')} placeholder={t('school.vacant.pick')} searchable data={data} value={null} onChange={(m) => m && set(() => api('PATCH', `${P}/classrooms/${h.classroom_id}`, { homeroom_membership_id: Number(m) }))} w={200} />}
+            </Group>
+          ))}
+          {v.loads.map((l) => (
+            <Group key={`l${l.load_id}`} gap="xs" data-testid="vacant-row">
+              <Text size="sm" w={260}>{vacantText.load(l)} · {who(l)}</Text>
+              {admin && <Select aria-label={t('school.vacant.pick')} placeholder={t('school.vacant.pick')} searchable data={data} value={null} onChange={(m) => m && set(() => api('PATCH', `${P}/loads/${l.load_id}`, { membership_id: Number(m) }))} w={200} />}
+            </Group>
+          ))}
+        </Stack>
+      </Alert>
+    </div>
+  );
+}
+
+function Loads({ P, admin, focus }) {
   const org = useOrgConfig(P);
   const [d, reload, err] = useLoad(`${P}/loads`);
   const [people] = useLoad(`${P}/specialists`);
@@ -382,7 +420,7 @@ function Loads({ P, admin }) {
   });
   const patch = (l, body) => guard(() => api('PATCH', `${P}/loads/${l.id}`, body))();
   const remove = async (l) => {
-    const who = nm(people, 'membership_id', l.membership_id)?.name ?? '교사 비어 있음';
+    const who = nm(people, 'membership_id', l.membership_id)?.name ?? findPerson(l.membership_id, [], d?.inactive_teachers)?.name ?? '교사 비어 있음';
     const c = nm(classes, 'id', l.classroom_id);
     if (!(await ask(`이 줄을 지울까요?\n${who} · ${nm(subjects, 'id', l.subject_id)?.name ?? '교과 비어 있음'} · ${c ? `${c.grade}-${c.class_no}` : '모든 반'} · ${l.weekly_hours}시수`, { yes: '지우기' }))) return;
     guard(() => api('DELETE', `${P}/loads/${l.id}`))();
@@ -391,6 +429,7 @@ function Loads({ P, admin }) {
     <Stack>
       {box}
       <Err e={err || fail} />
+      <VacantBox P={P} admin={admin} people={people} focus={focus} onChanged={reload} />
       {notes.map((m, i) => <Alert key={i} color="yellow">{m}</Alert>)}
       {(d?.alerts || []).map((a, i) => <MissingBox key={i} a={a} />)}
       {admin && <LoadUpload P={P} onDone={reload} />}
@@ -399,12 +438,12 @@ function Loads({ P, admin }) {
           <Table.Tr key={l.id} bg={l.incomplete ? 'yellow.0' : undefined}>
             {admin ? (
               <>
-                <Table.Td><Select aria-label="교사" placeholder="(교사 비어 있음)" clearable searchable data={opt(people, { v: (x) => x.membership_id, l: (x) => x.name })} value={l.membership_id ? String(l.membership_id) : null} onChange={(v) => patch(l, { membership_id: v ? Number(v) : null })} w={140} /></Table.Td>
+                <Table.Td><Select aria-label="교사" placeholder="(교사 비어 있음)" clearable searchable data={withCurrent(opt(people, { v: (x) => x.membership_id, l: (x) => x.name }), l.membership_id, d?.inactive_teachers, (x) => markedName(x.name))} value={l.membership_id ? String(l.membership_id) : null} onChange={(v) => patch(l, { membership_id: v ? Number(v) : null })} w={190} /></Table.Td>
                 <Table.Td><Select aria-label="교과" placeholder="(교과 비어 있음)" clearable data={opt(subjects, { v: (x) => x.id, l: (x) => x.name })} value={l.subject_id ? String(l.subject_id) : null} onChange={(v) => patch(l, { subject_id: v ? Number(v) : null })} w={130} /></Table.Td>
               </>
             ) : (
               <>
-                <Table.Td>{nm(people, 'membership_id', l.membership_id)?.name ?? '(교사 비어 있음)'}</Table.Td>
+                <Table.Td>{(() => { const who = findPerson(l.membership_id, (people || []).map((x) => ({ id: x.membership_id, name: x.name })), d?.inactive_teachers); return who ? (who.vacant ? markedName(who.name) : who.name) : '(교사 비어 있음)'; })()}</Table.Td>
                 <Table.Td>{nm(subjects, 'id', l.subject_id)?.name ?? '(교과 비어 있음)'}</Table.Td>
               </>
             )}
@@ -523,7 +562,7 @@ function Rules({ P, admin }) {
 // 하위 탭 첫 방문 카드 — 그 탭 기능(loads·pins·levels) 소개. 메뉴 안내와 따로 한 번씩
 const TabIntro = ({ tab, user, features }) => <MenuIntro menu={`school:${tab}`} pitchKey={SCHOOL_TAB_FEATURE[tab]} user={user} features={features} />;
 
-export default function SchoolPage({ user, goTab }) {
+export default function SchoolPage({ user, goTab, focus }) {
   const P = `/orgs/${user.orgId}`;
   const admin = user.role === '기관관리자';
   // 기관 스위치로 꺼진 탭은 숨기고, 첫 탭은 켜진 것 중 첫째(Tabs 가 defaultValue 를 처음에만 읽어 key 로 다시 세운다)
@@ -531,6 +570,7 @@ export default function SchoolPage({ user, goTab }) {
   const on = visibleTabs(SCHOOL_TAB_FEATURE, features, ['basic', 'spec', 'loads', 'pins', ...(admin ? ['rules'] : [])]);
   const has = (t) => on.includes(t);
   const [tab, setTab] = useState(admin ? 'setup' : null);
+  useEffect(() => { if (focus) setTab('loads'); }, [focus]); // 「빈 것 목록」으로 오라는 말이 오면 시수표 탭으로
   const cur = tab && (tab === 'setup' || has(tab)) ? tab : on[0];
   // 7단계 화면의 「직접 고치는 화면」 링크 — 학교 자료 안 탭은 여기서 옮기고, 바깥 탭(명단·특별실·자동 생성)은 윗줄 탭을 바꾸는 goTab 으로 옮긴다
   const INNER = { school: 'basic', loads: 'loads', pins: 'pins' };
@@ -552,7 +592,7 @@ export default function SchoolPage({ user, goTab }) {
       {admin && <Tabs.Panel value="setup" pt="md"><SchoolSetup P={P} goOld={goOld} /></Tabs.Panel>}
       {has('basic') && <Tabs.Panel value="basic" pt="md"><Basics P={P} admin={admin} /></Tabs.Panel>}
       {has('spec') && <Tabs.Panel value="spec" pt="md"><Specialists P={P} admin={admin} /></Tabs.Panel>}
-      {has('loads') && <Tabs.Panel value="loads" pt="md"><TabIntro tab="loads" user={user} features={features} /><Text size="sm" c="dimmed" mb="sm"><Term k="시수표">시수표</Term>: 누가·어느 반에·무슨 과목을·주 몇 시간 가르치는지 적은 표입니다(낱말을 누르면 풀이).</Text><Loads P={P} admin={admin} /></Tabs.Panel>}
+      {has('loads') && <Tabs.Panel value="loads" pt="md"><TabIntro tab="loads" user={user} features={features} /><Text size="sm" c="dimmed" mb="sm"><Term k="시수표">시수표</Term>: 누가·어느 반에·무슨 과목을·주 몇 시간 가르치는지 적은 표입니다(낱말을 누르면 풀이).</Text><Loads P={P} admin={admin} focus={focus} /></Tabs.Panel>}
       {has('pins') && <Tabs.Panel value="pins" pt="md">
         <TabIntro tab="pins" user={user} features={features} />
         <Tabs defaultValue="교사" keepMounted={false}>

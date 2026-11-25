@@ -75,6 +75,7 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
     { v: 'me', label: '내 정보', hint: '비밀번호를 바꿉니다', show: true },
   ];
   const [tip, setTip] = useState(null);
+  const [focus, setFocus] = useState(null); // 자동 생성 점검 줄의 「빈 것 목록 보기」 → 학교 자료 시수표의 빈 것 목록
   const [want, setTab] = useState(admin && !phone ? 'roster' : admin ? 'grid' : 'mine');
   const items = visibleMenus(all, features); // 권한(show) AND 기관 스위치. 「기능 고르기」는 MENU_FEATURES 에 없어 늘 보인다
   useEffect(() => { if (jump) setTab(jump.v); }, [jump]); // 도움말 같은 바깥 화면이 시키는 탭 이동
@@ -102,9 +103,9 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
         {bar.map((i) => <Tabs.Tab key={i.v} value={i.v}>{phone && i.phoneLabel ? i.phoneLabel : i.label}{i.v === 'me' && isNew && <span data-testid="new-dot" aria-label="새 기능이 있어요" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--mantine-color-red-6)', marginLeft: 6 }} />}</Tabs.Tab>)}
       </Tabs.List>
       {on('roster') && <Panel v="roster" hint={H.roster}><Roster orgId={user.orgId} /></Panel>}
-      {on('school') && <Panel v="school" hint={H.school}><SchoolPage user={user} goTab={setTab} /></Panel>}
+      {on('school') && <Panel v="school" hint={H.school}><SchoolPage user={user} goTab={setTab} focus={focus} /></Panel>}
       <Panel v="grid" hint={H.grid}><Grid P={P} admin={admin} /></Panel>
-      {on('gen') && <Panel v="gen"><AutoGen P={P} /></Panel>}
+      {on('gen') && <Panel v="gen"><AutoGen P={P} onGoVacant={() => { setFocus(Date.now()); setTab('school'); }} /></Panel>}
       {on('softset') && <Panel v="softset" hint={H.softset}><SoftSettings P={P} /></Panel>}
       {on('orgcfg') && <Panel v="orgcfg" hint={H.orgcfg}><OrgConfig P={P} /></Panel>}
       {on('out') && <Panel v="out" hint={H.out}><Output P={P} admin={admin} /></Panel>}

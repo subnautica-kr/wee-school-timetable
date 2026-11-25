@@ -7,7 +7,7 @@ import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 import { todayStr } from '../today.js';
 import { featureOn } from '../features.js';
 import { EmptyHint, Finger } from './Guide.jsx';
-import T from '../T.jsx';
+import T, { t } from '../T.jsx';
 import { quickPeriods, hasSchoolClasses } from './quickDefaults.js';
 import { ClearTermButton } from '../settings/DangerZone.jsx';
 import { emptyCount, confirmText } from '../../../shared/ttConfirm.js';
@@ -15,6 +15,7 @@ import { outsideCells, periodsMax, periodsOn } from '../../../shared/periods.js'
 import { roomWeek, isClash, movePreview } from '../../../shared/ttDrag.js';
 import { findById, pickOrFirst, sameId, loadPick, savePick } from './pick.js';
 import { teacherNames, teacherClashes, clashText } from './secondTeacher.js';
+import { withCurrent, markedName } from './vacant.js';
 
 const UNDO_MAX = 50;
 const GRADES = [1, 2, 3, 4, 5, 6];
@@ -309,7 +310,7 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
                       {c ? (
                         <>
                           <Text size="sm" fw={600}>{subjName(c.subject_id) || '·'}</Text>
-                          <Text size="xs" c="dimmed">{teacherNames(c, d.teachers).join(' · ')}{c.special_room_id ? ` @${name(d.rooms, c.special_room_id)?.name || ''}` : ''}</Text>
+                          <Text size="xs" c="dimmed">{teacherNames(c, d.teachers, d.inactive_teachers, t('grid.vacant.mark')).join(' · ')}{c.special_room_id ? ` @${name(d.rooms, c.special_room_id)?.name || ''}` : ''}</Text>
                           {v && <Text size="xs" c={v.color} fw={700}>{v.label}</Text>}
                           {offDay(w, p) && <Text size="xs" c="orange" fw={700}>교시 수 밖</Text>}
                         </>
@@ -342,7 +343,7 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
                         <Table.Td key={wi} style={{ background: clash ? 'var(--mantine-color-red-1)' : undefined }}>
                           {list?.map((c) => {
                             const k = findById(d.classrooms, c.classroom_id);
-                            return <Text size="xs" key={c.classroom_id} c={clash ? 'red' : undefined}>{k ? `${k.grade}-${k.class_no}` : ''} {name(d.subjects, c.subject_id)?.name || ''} {teacherNames(c, d.teachers).join(' · ')}</Text>;
+                            return <Text size="xs" key={c.classroom_id} c={clash ? 'red' : undefined}>{k ? `${k.grade}-${k.class_no}` : ''} {name(d.subjects, c.subject_id)?.name || ''} {teacherNames(c, d.teachers, d.inactive_teachers, t('grid.vacant.mark')).join(' · ')}</Text>;
                           })}
                           {clash && <Text size="xs" c="red" fw={700}>겹침</Text>}
                         </Table.Td>
@@ -359,8 +360,8 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
         <Stack>
           <Select label="교과" allowDeselect={false} searchable data={d.subjects.map((s) => ({ value: String(s.id), label: s.name }))} value={form.subject_id} onChange={(v) => setForm({ ...form, subject_id: v })} />
           <TextInput label="또는 과목 이름 직접 쓰기" placeholder="목록에 없으면 여기에 (예: 창체)" value={form.newSubject || ''} onChange={(e) => setForm({ ...form, newSubject: e.currentTarget.value })} />
-          <Select label="교사(비워도 됩니다)" clearable searchable data={d.teachers.map((t) => ({ value: String(t.id), label: t.name }))} value={form.membership_id} onChange={(v) => setForm({ ...form, membership_id: v })} />
-          <Select label="둘째 교사(선택 — 한 수업에 교사 둘일 때)" clearable searchable placeholder="없음" data={d.teachers.filter((t) => String(t.id) !== String(form.membership_id)).map((t) => ({ value: String(t.id), label: t.name }))} value={form.second_membership_id ?? null} onChange={(v) => setForm({ ...form, second_membership_id: v })} />
+          <Select label="교사(비워도 됩니다)" clearable searchable data={withCurrent(d.teachers.map((x) => ({ value: String(x.id), label: x.name })), form.membership_id, d.inactive_teachers, (x) => markedName(x.name))} value={form.membership_id} onChange={(v) => setForm({ ...form, membership_id: v })} />
+          <Select label="둘째 교사(선택 — 한 수업에 교사 둘일 때)" clearable searchable placeholder="없음" data={withCurrent(d.teachers.filter((x) => String(x.id) !== String(form.membership_id)).map((x) => ({ value: String(x.id), label: x.name })), form.second_membership_id, d.inactive_teachers, (x) => markedName(x.name))} value={form.second_membership_id ?? null} onChange={(v) => setForm({ ...form, second_membership_id: v })} />
           {clashNote && <Alert color="yellow" data-testid="second-clash">{clashNote} (막지 않습니다)</Alert>}
           {roomsOn && <Select label="특별실" clearable placeholder="없음" data={d.rooms.map((r) => ({ value: String(r.id), label: r.name }))} value={form.special_room_id} onChange={(v) => setForm({ ...form, special_room_id: v })} />}
           <Group justify="space-between">
