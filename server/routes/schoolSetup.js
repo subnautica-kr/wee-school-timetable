@@ -58,8 +58,9 @@ export function schoolSetupRouter(pool) {
     const pc = (await pool.query(`SELECT period_config FROM org WHERE id = $1`, [orgId])).rows[0]?.period_config ?? {};
     const rooms = (await pool.query(`SELECT id, grade, class_no, homeroom_membership_id FROM classroom WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL ORDER BY grade, class_no`, [orgId, term.id])).rows;
     const people = (await pool.query(`SELECT id, name, duty FROM membership WHERE org_id = $1 AND deleted_at IS NULL AND status = '사용' AND role <> '시스템관리자' ORDER BY name, id`, [orgId])).rows; // 문구-예외: 저장 값
-    const special = (await pool.query(`SELECT id, name FROM special_room WHERE org_id = $1 AND deleted_at IS NULL ORDER BY id`, [orgId])).rows;
-    const lines = (await pool.query(`SELECT id, membership_id, second_membership_id, second_hours, subject_id, classroom_id, special_room_id, weekly_hours FROM teaching_load WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL ORDER BY id`, [orgId, term.id])).rows
+    const special = (await pool.query(`SELECT id, name, capacity FROM special_room WHERE org_id = $1 AND deleted_at IS NULL ORDER BY id`, [orgId])).rows;
+    const groups = (await pool.query(`SELECT id, name, room_ids FROM special_room_group WHERE org_id = $1 AND deleted_at IS NULL ORDER BY id`, [orgId])).rows;
+    const lines = (await pool.query(`SELECT id, membership_id, second_membership_id, second_hours, subject_id, classroom_id, special_room_id, room_group_id, room_hours, weekly_hours FROM teaching_load WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL ORDER BY id`, [orgId, term.id])).rows
       .map((l) => ({ ...l, id: Number(l.id), classroom_id: l.classroom_id == null ? null : Number(l.classroom_id), membership_id: l.membership_id == null ? null : Number(l.membership_id), weekly_hours: Number(l.weekly_hours) || 0 }));
     const pinN = (await pool.query(`SELECT count(*)::int AS n FROM pin WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL`, [orgId, term.id])).rows[0].n;
     const ttN = (await pool.query(`SELECT count(*)::int AS n FROM timetable WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL`, [orgId, term.id])).rows[0].n;
@@ -85,9 +86,25 @@ export function schoolSetupRouter(pool) {
     // 교사·교과(·시수)가 빈 줄
     issues.incomplete = lines.filter(isIncomplete).map((l) => ({ id: l.id, no_teacher: !l.membership_id, no_subject: !l.subject_id, no_hours: !(l.weekly_hours > 0) }));
     // 받을 수 있는 수업보다 많은 특별실 — 한 번에 한 반, 주 칸 수 기준
+    // 받을 수 있는 수업 = 주 칸 수 × 정원(한 번에 들어가는 반 수 · 비면 1) · 방을 쓰는 시수만 센다(room_hours 비면 주당 시수 전부)
+    // 묶음 줄은 구성원 방들의 받을 수 있는 수업을 합쳐 한 덩이로 견준다(구성원 방에 직접 붙은 줄도 같이 센다)
+    const used = (l) => Math.min(l.weekly_hours, l.room_hours ?? l.weekly_hours);
     const sumByRoom = new Map();
-    for (const l of eff) if (l.special_room_id) sumByRoom.set(Number(l.special_room_id), (sumByRoom.get(Number(l.special_room_id)) ?? 0) + l.weekly_hours);
-    issues.over_room = special.filter((s) => (sumByRoom.get(Number(s.id)) ?? 0) > maxSlots).map((s) => ({ id: Number(s.id), name: s.name, hours: sumByRoom.get(Number(s.id)), cap: maxSlots }));
+    const sumByGroup = new Map();
+    for (const l of eff) {
+      if (l.special_room_id) sumByRoom.set(Number(l.special_room_id), (sumByRoom.get(Number(l.special_room_id)) ?? 0) + used(l));
+      else if (l.room_group_id) sumByGroup.set(Number(l.room_group_id), (sumByGroup.get(Number(l.room_group_id)) ?? 0) + used(l));
+    }
+    const slotsOfRoom = (s) => maxSlots * (s.capacity > 0 ? s.capacity : 1);
+    const inGroup = new Set(groups.flatMap((g) => g.room_ids.map(Number)));
+    issues.over_room = [
+      ...special.filter((s) => !inGroup.has(Number(s.id)) && (sumByRoom.get(Number(s.id)) ?? 0) > slotsOfRoom(s))
+        .map((s) => ({ id: Number(s.id), name: s.name, hours: sumByRoom.get(Number(s.id)), cap: slotsOfRoom(s) })),
+      ...groups.map((g) => {
+        const mem = special.filter((s) => g.room_ids.map(Number).includes(Number(s.id)));
+        return { id: Number(g.id), name: g.name, group: true, hours: (sumByGroup.get(Number(g.id)) ?? 0) + mem.reduce((a, s) => a + (sumByRoom.get(Number(s.id)) ?? 0), 0), cap: mem.reduce((a, s) => a + slotsOfRoom(s), 0) };
+      }).filter((g) => g.hours > g.cap),
+    ];
     // 담임 없는 반 · 반 없는 담임
     issues.no_homeroom = rooms.filter((c) => !c.homeroom_membership_id).map((c) => ({ id: Number(c.id), grade: c.grade, class_no: c.class_no }));
     const homeIds = new Set(rooms.map((c) => Number(c.homeroom_membership_id)).filter(Boolean));

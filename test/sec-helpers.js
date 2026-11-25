@@ -26,7 +26,7 @@ export const HAS_DB = !!(process.env.DATABASE_URL || process.env.DATABASE_URL_FI
 export const PW = 'pw-test-1234';
 
 // 지울 차례(참조 받는 표가 뒤)
-const ORG_TABLES = ['delete_batch', 'attendance_allowed', 'attendance', 'month_close', 'booking', 'room_lock', 'substitute', 'cell', 'timetable', 'pin', 'teaching_load', 'classroom', 'term', 'subject', 'special_room', 'audit_log'];
+const ORG_TABLES = ['delete_batch', 'attendance_allowed', 'attendance', 'month_close', 'booking', 'room_lock', 'substitute', 'cell', 'timetable', 'pin', 'teaching_load', 'classroom', 'term', 'subject', 'special_room_group', 'special_room', 'audit_log'];
 
 // 시험이 만든 기관·계정을 끝에 지운다(참조 받는 표 먼저). 로그인 기관 목록에 시험 기관이 남지 않게 — 시험마다 이걸 쓴다.
 // 고르는 기준은 「넘긴 id」와 「tag 접두사(이름·로그인 `tag-%`)」뿐 — 표를 통째로 비우거나 넓은 LIKE 를 쓰지 않는다.
@@ -87,6 +87,7 @@ export async function setup(t, appOpts = {}) {
   B.class = await q(`INSERT INTO classroom (org_id, term_id, grade, class_no) VALUES ($1, $2, 3, 1) RETURNING id`, [f.orgB, B.term]);
   B.subject = await q(`INSERT INTO subject (org_id, name) VALUES ($1, 'B과목') RETURNING id`, [f.orgB]);
   B.room = await q(`INSERT INTO special_room (org_id, name) VALUES ($1, 'B실') RETURNING id`, [f.orgB]);
+  B.group = await q(`INSERT INTO special_room_group (org_id, name, room_ids) VALUES ($1, 'B묶음', $2) RETURNING id`, [f.orgB, [B.room]]);
   B.load = await q(`INSERT INTO teaching_load (org_id, term_id, classroom_id, subject_id, weekly_hours) VALUES ($1,$2,$3,$4,2) RETURNING id`, [f.orgB, B.term, B.class, B.subject]);
   B.pin = await q(`INSERT INTO pin (org_id, term_id, target_kind, target_id, weekday, period, kind) VALUES ($1,$2,'반',$3,1,1,'금지') RETURNING id`, [f.orgB, B.term, B.class]);
   B.tt = await q(`INSERT INTO timetable (org_id, term_id, name) VALUES ($1, $2, 'B시간표') RETURNING id`, [f.orgB, B.term]);

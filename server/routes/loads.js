@@ -6,6 +6,7 @@ import { currentTerm } from './school.js';
 import { CEIL, limitWarnings, loadConfig, withWarnings } from '../orgConfig.js';
 import { makeLoadTemplate, parseLoadRows } from '../export/loadsImport.js';
 import { readTable } from '../export/import.js';
+import { t } from '../../shared/text/index.js';
 import { teachersOf } from '../../shared/cellTeachers.js';
 
 // 시수표. 거부하지 않는다 — 덜 채운 줄(교사·교과·시수가 빈 줄)도 그대로 보관하고 목록으로 알린다.
@@ -21,6 +22,8 @@ const body = z.object({
   subject_id: ref,
   classroom_id: ref,
   special_room_id: ref,
+  room_group_id: ref, // 방 하나 대신 「아무 방」 묶음(특별실 묶음). 방과 묶음을 함께 보내면 묶음을 비운다
+  room_hours: z.union([z.null(), z.number().int().min(0).max(CEIL.loadPerWeek)]).optional(), // 방을 쓰는 시수(비우면 전부)
   weekly_hours: z.number().int().min(0).max(CEIL.loadPerWeek).optional(),
   sync_progress: z.boolean().optional(),
   block: z.number().int().min(1).max(CEIL.block).optional(), // 연강: 한 번에 붙여 놓을 시수(1 낱개). 기관 limits.block(기본 3)을 넘으면 경고
@@ -31,8 +34,9 @@ const REFS = [
   ['subject_id', `SELECT 1 FROM subject WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`],
   ['classroom_id', `SELECT 1 FROM classroom WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`],
   ['special_room_id', `SELECT 1 FROM special_room WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`],
+  ['room_group_id', `SELECT 1 FROM special_room_group WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`],
 ];
-const COLS = 'id, term_id, membership_id, second_membership_id, second_hours, subject_id, classroom_id, special_room_id, weekly_hours, sync_progress, block';
+const COLS = 'id, term_id, membership_id, second_membership_id, second_hours, subject_id, classroom_id, special_room_id, room_group_id, room_hours, weekly_hours, sync_progress, block';
 
 // 순수 함수: 시수표 줄 → 덜 채운 줄 표시
 export const isIncomplete = (l) => !l.membership_id || !l.subject_id || !(l.weekly_hours > 0);
@@ -56,6 +60,18 @@ export function missingTeachers(teachers, lines) {
   return teachers.filter((t) => !hasT(t.membership_id)).map((t) => ({ rule: 'load_missing_teacher', detail: { membership_id: t.membership_id, name: t.name } }));
 }
 
+// 순수 함수: 방 사용 시수 알림(막지 않는다). row = 저장된 줄(없으면 요청 본문) · d = 이번에 보낸 칸
+export function roomWarnings(row, d = row) {
+  const out = [];
+  const used = row.room_hours;
+  const weekly = row.weekly_hours ?? 0;
+  if (d.special_room_id && d.room_group_id) out.push({ key: 'room_both', msg: t('school.special.warn_both') });
+  if (used != null && weekly > 0 && used > weekly) out.push({ key: 'room_hours_over', msg: t('school.special.warn_hours_over', { 사용: used, 주당: weekly }) });
+  const block = row.block ?? 1;
+  if (used != null && block > 1 && used < weekly && used % block !== 0) out.push({ key: 'room_block_whole', msg: t('school.special.warn_block_whole', { 연강: block, 사용: used }) });
+  return out;
+}
+
 export function loadsRouter(pool) {
   const r = express.Router({ mergeParams: true });
   const view = requireOrgAction('timetable.view');
@@ -70,7 +86,7 @@ export function loadsRouter(pool) {
     }
     return true;
   }
-  const loadWarn = async (req, d) => limitWarnings(await loadConfig(pool, req.orgId), { loadPerWeek: d.weekly_hours ?? 0, block: d.block ?? 0 });
+  const loadWarn = async (req, d, row = null) => [...limitWarnings(await loadConfig(pool, req.orgId), { loadPerWeek: d.weekly_hours ?? 0, block: d.block ?? 0 }), ...roomWarnings(row ?? d, d)];
   async function snapshot(req) {
     const t = await currentTerm(pool, req.orgId);
     const lines = (await pool.query(`SELECT ${COLS} FROM teaching_load WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL ORDER BY id`, [req.orgId, t.id])).rows;
@@ -177,10 +193,10 @@ export function loadsRouter(pool) {
       const t = await currentTerm(pool, req.orgId);
       const d = p.data;
       const { rows } = await pool.query(
-        `INSERT INTO teaching_load (org_id, term_id, membership_id, subject_id, classroom_id, special_room_id, weekly_hours, sync_progress, block, second_membership_id, second_hours) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING ${COLS}`,
-        [req.orgId, t.id, d.membership_id ?? null, d.subject_id ?? null, d.classroom_id ?? null, d.special_room_id ?? null, d.weekly_hours ?? 0, d.sync_progress ?? false, d.block ?? 1, d.second_membership_id ?? null, d.second_hours ?? null],
+        `INSERT INTO teaching_load (org_id, term_id, membership_id, subject_id, classroom_id, special_room_id, weekly_hours, sync_progress, block, second_membership_id, second_hours, room_group_id, room_hours) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING ${COLS}`,
+        [req.orgId, t.id, d.membership_id ?? null, d.subject_id ?? null, d.classroom_id ?? null, d.special_room_id ?? null, d.weekly_hours ?? 0, d.sync_progress ?? false, d.block ?? 1, d.second_membership_id ?? null, d.second_hours ?? null, d.special_room_id ? null : (d.room_group_id ?? null), d.room_hours ?? null],
       );
-      res.status(201).json(withWarnings({ ...rows[0], incomplete: isIncomplete(rows[0]) }, await loadWarn(req, d)));
+      res.status(201).json(withWarnings({ ...rows[0], incomplete: isIncomplete(rows[0]) }, await loadWarn(req, d, rows[0])));
     } catch (e) { next(e); }
   });
 
@@ -193,12 +209,18 @@ export function loadsRouter(pool) {
       if (!(await check(req, p.data))) return notFound(res);
       const sets = [];
       const vals = [lid.data, req.orgId];
+      // 방과 묶음은 하나만 — 나중에 보낸 쪽이 이기고(둘 다면 방), 다른 쪽은 비운다
+      const both = !!(p.data.special_room_id && p.data.room_group_id);
+      const d0 = { ...p.data };
+      if (d0.special_room_id) d0.room_group_id = null;
+      else if (d0.room_group_id) d0.special_room_id = null;
+      p.data = d0;
       for (const k of Object.keys(body.shape)) {
         if (k in p.data) { vals.push(p.data[k]); sets.push(`${k} = $${vals.length}`); }
       }
       if (!sets.length) return res.status(400).json({ error: '입력을 확인해 주세요' });
       const { rows } = await pool.query(`UPDATE teaching_load SET ${sets.join(', ')} WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL RETURNING ${COLS}`, vals);
-      rows[0] ? res.json(withWarnings({ ...rows[0], incomplete: isIncomplete(rows[0]) }, await loadWarn(req, p.data))) : notFound(res);
+      rows[0] ? res.json(withWarnings({ ...rows[0], incomplete: isIncomplete(rows[0]) }, await loadWarn(req, { ...p.data, ...(both ? { special_room_id: 1, room_group_id: 1 } : {}) }, rows[0]))) : notFound(res);
     } catch (e) { next(e); }
   });
 

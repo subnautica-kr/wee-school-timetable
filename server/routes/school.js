@@ -5,6 +5,7 @@ import { requireOrgAction } from '../guard.js';
 import { audit } from '../audit.js';
 import { inTx, removeWithCascade } from '../cascade.js';
 import { periodsMax } from '../../shared/periods.js';
+import { t } from '../../shared/text/index.js';
 import { CEIL, dutyWarnings, limitWarnings, loadConfig, semesterOf, withWarnings } from '../orgConfig.js';
 
 // 학교 기본: 학기 · 반 · 학년별 교시·점심 · 기본 교과 14 · 특별실 · 전담·비교과
@@ -150,8 +151,8 @@ export function schoolRouter(pool) {
         `INSERT INTO classroom (org_id, term_id, grade, class_no, homeroom_membership_id, student_count)
          SELECT org_id, $2, grade, class_no, homeroom_membership_id, student_count FROM classroom WHERE org_id = $1 AND term_id = $3 AND deleted_at IS NULL RETURNING id`, [req.orgId, cur.id, prev.id])).rows.length;
       const loads = (await c.query(
-        `INSERT INTO teaching_load (org_id, term_id, membership_id, subject_id, classroom_id, weekly_hours, sync_progress, special_room_id, block, second_membership_id, second_hours)
-         SELECT l.org_id, $2, l.membership_id, l.subject_id, nc.id, l.weekly_hours, l.sync_progress, l.special_room_id, l.block, l.second_membership_id, l.second_hours
+        `INSERT INTO teaching_load (org_id, term_id, membership_id, subject_id, classroom_id, weekly_hours, sync_progress, special_room_id, block, second_membership_id, second_hours, room_group_id, room_hours)
+         SELECT l.org_id, $2, l.membership_id, l.subject_id, nc.id, l.weekly_hours, l.sync_progress, l.special_room_id, l.block, l.second_membership_id, l.second_hours, l.room_group_id, l.room_hours
            FROM teaching_load l LEFT JOIN classroom oc ON oc.id = l.classroom_id
            LEFT JOIN classroom nc ON nc.org_id = l.org_id AND nc.term_id = $2 AND nc.grade = oc.grade AND nc.class_no = oc.class_no AND nc.deleted_at IS NULL
           WHERE l.org_id = $1 AND l.term_id = $3 AND l.deleted_at IS NULL AND (l.classroom_id IS NULL OR nc.id IS NOT NULL) RETURNING id`, [req.orgId, cur.id, prev.id])).rows.length;
@@ -340,12 +341,64 @@ export function schoolRouter(pool) {
     const p = roomIn.partial().safeParse(req.body);
     if (!rid.success || !p.success) return notFound(res);
     const { rows } = await pool.query(
-      `UPDATE special_room SET name = COALESCE($3, name), purpose = COALESCE($4, purpose), capacity = COALESCE($5, capacity) WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL RETURNING id, name, purpose, capacity`,
-      [rid.data, req.orgId, p.data.name ?? null, p.data.purpose ?? null, p.data.capacity ?? null],
+      `UPDATE special_room SET name = COALESCE($3, name), purpose = COALESCE($4, purpose), capacity = CASE WHEN $6::boolean THEN $5 ELSE capacity END WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL RETURNING id, name, purpose, capacity`,
+      [rid.data, req.orgId, p.data.name ?? null, p.data.purpose ?? null, p.data.capacity ?? null, 'capacity' in p.data], // 정원 null 을 보내면 비운다(= 1반으로 셈)
     );
     rows[0] ? res.json(withWarnings(rows[0], limitWarnings(await loadConfig(pool, req.orgId), { capacity: p.data.capacity ?? 0 }))) : notFound(res);
   }));
   r.delete('/special-rooms/:id', manage, removeRoute(pool, 'special_room'));
+
+  // ── 특별실 묶음(015) — 「과학실 아무 방」. 시수표 줄이 방 하나 대신 묶음을 가리키면 생성기가 비는 방 하나를 고른다 ──
+  const groupIn = z.object({ name: z.string().trim().min(1).max(40), room_ids: z.array(id).max(50) });
+  const GSEL = `SELECT g.id, g.name, COALESCE((SELECT array_agg(s.id ORDER BY s.id) FROM special_room s WHERE s.id = ANY(g.room_ids) AND s.org_id = g.org_id AND s.deleted_at IS NULL), '{}') AS room_ids FROM special_room_group g`;
+  const groupOut = (g) => ({ ...g, id: Number(g.id), room_ids: g.room_ids.map(Number) });
+  // 살아 있는 이 기관의 방만 남긴다 — 못 찾은 번호는 버리고 알림
+  const liveRooms = async (orgId, ids) => (await pool.query(`SELECT id FROM special_room WHERE org_id = $1 AND deleted_at IS NULL AND id = ANY($2::bigint[]) ORDER BY id`, [orgId, ids])).rows.map((x) => Number(x.id));
+  const groupWarn = (want, got) => [
+    ...(got.length < want.length ? [{ key: 'group_missing', msg: t('school.special.warn_group_missing') }] : []),
+    ...(got.length === 0 ? [{ key: 'group_empty', msg: t('school.special.warn_group_empty') }] : got.length === 1 ? [{ key: 'group_one', msg: t('school.special.warn_group_one') }] : []),
+  ];
+  r.get('/special-room-groups', view, guard(async (req, res) => {
+    const { rows } = await pool.query(`${GSEL} WHERE g.org_id = $1 AND g.deleted_at IS NULL ORDER BY g.id`, [req.orgId]);
+    res.json(rows.map(groupOut));
+  }));
+  r.post('/special-room-groups', manage, guard(async (req, res) => {
+    const p = groupIn.safeParse(req.body);
+    if (!p.success) return bad(res);
+    const got = await liveRooms(req.orgId, p.data.room_ids);
+    const ins = await pool.query(`INSERT INTO special_room_group (org_id, name, room_ids) VALUES ($1,$2,$3) RETURNING id`, [req.orgId, p.data.name, got]);
+    const { rows } = await pool.query(`${GSEL} WHERE g.id = $1`, [ins.rows[0].id]);
+    await audit(pool, { orgId: req.orgId, userId: req.session.userId, action: 'special_room_group.create', table: 'special_room_group', rowId: rows[0].id, after: { name: p.data.name } });
+    res.status(201).json(withWarnings(groupOut(rows[0]), groupWarn(p.data.room_ids, got)));
+  }));
+  r.patch('/special-room-groups/:id', manage, guard(async (req, res) => {
+    const gid = id.safeParse(req.params.id);
+    const p = groupIn.partial().safeParse(req.body);
+    if (!gid.success) return notFound(res);
+    if (!p.success) return bad(res);
+    const got = p.data.room_ids ? await liveRooms(req.orgId, p.data.room_ids) : null;
+    const up = await pool.query(
+      `UPDATE special_room_group SET name = COALESCE($3, name), room_ids = COALESCE($4::bigint[], room_ids) WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL RETURNING id`,
+      [gid.data, req.orgId, p.data.name ?? null, got]);
+    if (!up.rows[0]) return notFound(res);
+    const { rows } = await pool.query(`${GSEL} WHERE g.id = $1`, [gid.data]);
+    await audit(pool, { orgId: req.orgId, userId: req.session.userId, action: 'special_room_group.update', table: 'special_room_group', rowId: gid.data, after: { name: rows[0].name } });
+    res.json(withWarnings(groupOut(rows[0]), got ? groupWarn(p.data.room_ids, got) : []));
+  }));
+  // 지우기 — 묶음을 가리키던 시수표 줄은 남기고 묶음 칸만 비운다
+  r.delete('/special-room-groups/:id', manage, guard(async (req, res) => {
+    const gid = id.safeParse(req.params.id);
+    if (!gid.success) return notFound(res);
+    const out = await inTx(pool, async (c) => {
+      const d = await c.query(`UPDATE special_room_group SET deleted_at = now() WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL RETURNING name`, [gid.data, req.orgId]);
+      if (!d.rows[0]) return null;
+      const n = await c.query(`UPDATE teaching_load SET room_group_id = NULL WHERE room_group_id = $1 AND org_id = $2`, [gid.data, req.orgId]);
+      return { name: d.rows[0].name, loads: n.rowCount };
+    });
+    if (!out) return notFound(res);
+    await audit(pool, { orgId: req.orgId, userId: req.session.userId, action: 'special_room_group.delete', table: 'special_room_group', rowId: gid.data, after: out });
+    res.json({ ok: true, loads: out.loads });
+  }));
 
   // ── 「전담·비교과」 탭: 담당 구분이 전담·비교과인 소속 ──
   r.get('/specialists', view, guard(async (req, res) => {

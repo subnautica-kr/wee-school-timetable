@@ -22,7 +22,7 @@ const firstAdminBody = z.object({ name: z.string().trim().min(1).max(50), loginI
 const concurrentBody = z.object({ loginId: z.string().trim().regex(ID_RE), role: z.enum(['기관관리자', '교직원', '보기만']) });
 
 // 기관 삭제가 표시 삭제(deleted_at)하는 기관 자료 표 — 감사 기록(audit_log)·지운 묶음은 일부러 뺀다. 이 목록은 코드 상수다.
-const ORG_DATA = ['cell', 'timetable', 'pin', 'teaching_load', 'substitute', 'booking', 'room_lock', 'attendance_allowed', 'attendance', 'month_close', 'classroom', 'term', 'subject', 'special_room'];
+const ORG_DATA = ['cell', 'timetable', 'pin', 'teaching_load', 'substitute', 'booking', 'room_lock', 'attendance_allowed', 'attendance', 'month_close', 'classroom', 'term', 'subject', 'special_room_group', 'special_room'];
 const confirmBody = z.object({ confirm: z.string() });
 // 지우는 기관에만 속한 계정(다른 살아 있는 기관 소속이 없는 사람). 나머지는 겸임 계정
 const SOLE_USERS = `SELECT m.user_id FROM membership m WHERE m.org_id = $1 AND m.deleted_at IS NULL
