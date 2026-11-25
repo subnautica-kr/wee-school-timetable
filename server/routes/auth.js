@@ -26,7 +26,7 @@ const dummyHash = () => (dummyHashPromise ??= argon2.hash(crypto.randomBytes(8).
 export function authRouter(pool, opts = {}) {
   const r = express.Router();
   // 로그인 성공 때 세션 ID 새로 발급하고 사람·기관을 박는다
-  const startSession = async (req, who, orgId, role) => {
+  const startSession = async (req, who, orgId, role, extra = {}) => {
     await new Promise((resolve, reject) => req.session.regenerate((e) => (e ? reject(e) : resolve())));
     req.session.csrf = crypto.randomBytes(24).toString('hex');
     req.session.userId = who.id;
@@ -35,9 +35,25 @@ export function authRouter(pool, opts = {}) {
     req.session.role = role;
     req.session.mustChange = who.mustChange;
     req.session.cookie.maxAge = who.remember ? 30 * 24 * 3600 * 1000 : null; // 아니면 브라우저 닫으면 끝
+    if (extra.noOrg) req.session.noOrg = extra.noOrg; // 학교 없는 세션의 갈래(승인 대기 화면이 내용을 가른다)
     await new Promise((resolve, reject) => req.session.save((e) => (e ? reject(e) : resolve())));
   };
-  const sessionBody = (req) => ({ user: { id: req.session.userId, name: req.session.name, orgId: req.session.orgId, role: req.session.role, mustChange: req.session.mustChange }, csrf: req.session.csrf });
+  const sessionBody = (req) => ({
+    user: { id: req.session.userId, name: req.session.name, orgId: req.session.orgId, role: req.session.role, mustChange: req.session.mustChange },
+    ...(req.session.noOrg ? { noOrg: req.session.noOrg } : {}),
+    csrf: req.session.csrf,
+  });
+  // 학교 없는 세션의 갈래 — pending_approval(코드로 왔다 승인 대기) · dormant(휴면) · unlinked(연결 해제) · none(코드 없이 가입)
+  const noOrgKind = async (u) => {
+    const { rows } = await pool.query(
+      `SELECT reason FROM unlinked_account WHERE user_id = $1 AND resolved_at IS NULL AND expires_at > now()`,
+      [u.id],
+    );
+    if (rows.some((x) => x.reason === 'pending_approval')) return 'pending_approval';
+    if (u.dormant_at) return 'dormant';
+    if (rows.some((x) => x.reason === 'unlinked')) return 'unlinked';
+    return 'none';
+  };
   // 실패한 로그인만 센다 — 공유기 IP 하나인 학교에서 성공 로그인이 한도를 먹지 않게
   const loginLimit = rateLimit({ windowMs: 15 * 60_000, limit: opts.loginLimit ?? 30, standardHeaders: true, legacyHeaders: false, skipSuccessfulRequests: true });
 
@@ -57,6 +73,7 @@ export function authRouter(pool, opts = {}) {
       if (!req.session.userId) return res.json({ user: null, csrf: req.session.csrf });
       res.json({
         user: { id: req.session.userId, name: req.session.name, orgId: req.session.orgId, role: req.session.role, mustChange: !!req.session.mustChange },
+        ...(req.session.noOrg ? { noOrg: req.session.noOrg } : {}),
         csrf: req.session.csrf,
       });
     } catch (e) {
@@ -70,24 +87,29 @@ export function authRouter(pool, opts = {}) {
       if (!p.success) return res.status(400).json({ error: '입력을 확인해 주세요' });
       const { orgId, loginId, password, remember } = p.data;
 
-      const { rows } = await pool.query(
-        `SELECT u.id, u.name, u.password_hash, u.must_change_password, u.status, u.failed_count, u.locked_until,
-                m.role, m.org_id, o.name AS org_name, o.status AS org_status
-           FROM app_user u
-           JOIN membership m ON m.user_id = u.id AND ($1::bigint IS NULL OR m.org_id = $1) AND m.deleted_at IS NULL AND m.status = ANY($3::text[])
-           JOIN org o ON o.id = m.org_id AND o.deleted_at IS NULL
-          WHERE lower(u.login_id) = lower($2) AND u.deleted_at IS NULL ORDER BY (o.kind = '상위 기관'), o.name`,
-        [orgId ?? null, loginId, MEMBER_STATUS_LOGIN],
-      );
-      const u = rows[0];
-      const cands = rows.filter((x) => x.org_status === '사용');
+      // 로그인 분기 넷(설계 「가입 화면」 절): ① 계정 없음 → 가짜 검증 뒤 401 ② 잠김 → 401
+      // ③ 로그인 되는 줄 0 → 비밀번호가 맞으면 학교 없는 세션(계정만 · 기관·권한 없음) ④ 고른 학교에 소속 없음 → 401
+      const u = (await pool.query(
+        `SELECT id, name, password_hash, must_change_password, status, locked_until, dormant_at
+           FROM app_user WHERE lower(login_id) = lower($1) AND deleted_at IS NULL`,
+        [loginId],
+      )).rows[0];
       if (!u) {
         await argon2.verify(await dummyHash(), password).catch(() => {});
         return res.status(401).json({ error: SAME_FAIL });
       }
+      // 로그인 되는 줄 = 재직·휴직 · 기관이 사용 중(옛 숨김 줄만 가진 계정은 0 으로 센다)
+      const { rows: cands } = await pool.query(
+        `SELECT m.role, m.org_id, o.name AS org_name
+           FROM membership m JOIN org o ON o.id = m.org_id AND o.deleted_at IS NULL AND o.status = '사용'
+          WHERE m.user_id = $1 AND m.deleted_at IS NULL AND m.status = ANY($2::text[])
+          ORDER BY (o.kind = '상위 기관'), o.name`,
+        [u.id, MEMBER_STATUS_LOGIN],
+      );
+      const picked = orgId ? cands.find((x) => Number(x.org_id) === Number(orgId)) : null;
       const locked = u.status === '잠김' || (u.locked_until && new Date(u.locked_until) > new Date());
       const ok = await argon2.verify(u.password_hash, password).catch(() => false);
-      if (locked || (orgId ? u.org_status !== '사용' : !cands.length)) return res.status(401).json({ error: SAME_FAIL });
+      if (locked || (orgId && !picked)) return res.status(401).json({ error: SAME_FAIL });
       if (!ok) {
         await pool.query(
           `UPDATE app_user SET failed_count = failed_count + 1,
@@ -100,6 +122,11 @@ export function authRouter(pool, opts = {}) {
       await pool.query(`UPDATE app_user SET failed_count = 0, locked_until = NULL, last_login_at = now() WHERE id = $1`, [u.id]);
 
       const who = { id: Number(u.id), name: u.name, mustChange: u.must_change_password, remember };
+      if (!cands.length) {
+        // ③ 학교 없는 세션 — orgId·role 은 비운다(학교 길목은 가드가 404). 화면은 승인 대기 화면.
+        await startSession(req, who, null, null, { noOrg: await noOrgKind(u) });
+        return res.json(sessionBody(req));
+      }
       if (!orgId && cands.length > 1) {
         // 소속이 여럿 — 비밀번호는 맞았다. 세션엔 「고르는 중」만 두고 pick-org 로 마친다(userId 는 아직 안 박는다)
         await new Promise((resolve, reject) => req.session.regenerate((e) => (e ? reject(e) : resolve())));
@@ -108,7 +135,8 @@ export function authRouter(pool, opts = {}) {
         await new Promise((resolve, reject) => req.session.save((e) => (e ? reject(e) : resolve())));
         return res.json({ choose: req.session.pending.orgs, csrf: req.session.csrf });
       }
-      await startSession(req, who, orgId ? Number(orgId) : Number(cands[0].org_id), orgId ? u.role : cands[0].role);
+      const line = picked ?? cands[0];
+      await startSession(req, who, Number(line.org_id), line.role);
       res.json(sessionBody(req));
     } catch (e) {
       next(e);
