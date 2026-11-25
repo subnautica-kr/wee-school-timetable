@@ -503,7 +503,8 @@ export function rosterRouter(pool) {
     const l = await linkAccount(c, { membershipId: ln.id, userId: user.id, byUserId });
     if (l.error) return { ...l, status: 409 };
     await audit(c, { orgId, userId: byUserId, action: 'roster.approve', table: 'membership', rowId: ln.id, after: { userId: Number(user.id), moved: from.map((x) => Number(x.id)) } });
-    await notify(c, { userId: user.id, orgId, kind: 'roster.approve', text: t('roster.approve_notice.in', { 학교: await orgName(c, orgId) }) });
+    const 학교 = await orgName(c, orgId);
+    await notify(c, { userId: user.id, orgId, kind: 'roster.approve', text: t('roster.approve_notice.in', { 학교 }) });
     await killSessions(c, user.id); // 새 소속·권한은 다시 로그인해야 선다
     return { ok: true, userId: Number(user.id), membershipId: Number(ln.id), loginId: user.login_id, moved: from.length > 0 };
   };
@@ -578,6 +579,7 @@ export function rosterRouter(pool) {
   //   그 계정이 다른 학교에 재직 중이면 409 other_active(전출 요청은 1322b①) · 원래 대기 건은 닫힌다(새 중복 계정은 7일 정리가 맡음)
   r.post('/approvals/:uid/use-other', async (req, res, next) => {
     try {
+      if (!(await pendingFor(pool, req.orgId, req.params.uid))) return nf(res); // 남의 기관 건이면 입력 검사보다 먼저 404
       const p = z.object({ userId: idParam, membershipId: idParam.optional() }).safeParse(req.body);
       if (!p.success) return fail(res, 400, 'roster.err.bad_input');
       const by = req.session.userId;
@@ -599,7 +601,8 @@ export function rosterRouter(pool) {
         if (l.error) return { ...l, status: 409 };
         await c.query(`UPDATE unlinked_account SET resolved_at = now() WHERE id = $1 AND resolved_at IS NULL`, [pend.id]);
         await audit(c, { orgId: req.orgId, userId: by, action: 'roster.approve-other', table: 'membership', rowId: ln.id, after: { userId: other.userId, pendingUserId: Number(pend.user_id) } });
-        await notify(c, { userId: other.userId, orgId: req.orgId, kind: 'roster.approve', text: t('roster.approve_notice.in', { 학교: await orgName(c, req.orgId) }) });
+        const 학교 = await orgName(c, req.orgId);
+        await notify(c, { userId: other.userId, orgId: req.orgId, kind: 'roster.approve', text: t('roster.approve_notice.in', { 학교 }) });
         await killSessions(c, other.userId);
         return { ok: true, userId: other.userId, membershipId: Number(ln.id), loginId: other.loginId };
       });
