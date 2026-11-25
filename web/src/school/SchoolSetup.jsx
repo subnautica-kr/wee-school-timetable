@@ -107,12 +107,14 @@ function StepCard({ S, step, onChanged, goOld }) {
   );
 }
 
-export default function SchoolSetup({ P, goOld }) {
+export default function SchoolSetup({ P, goOld, go }) {
   const S = `${P}/school-setup`;
   const [st, setSt] = useState(null);
   const [err, setErr] = useState('');
   const load = useCallback(() => api('GET', `${S}/status`).then((r) => { setSt(r); setErr(''); }).catch((e) => setErr(e.message)), [S]);
   useEffect(() => { load(); }, [load]);
+  const ready = !!st;
+  useEffect(() => { if (go?.k && ready) document.querySelector(`[data-testid="setup-step-${go.k}"]`)?.scrollIntoView({ block: 'start' }); }, [go, ready]); // 옛 올리기 자리의 링크가 오면 그 단계 카드로
   if (err && !st) return <Alert color="red">{err}</Alert>;
   if (!st) return <Text size="sm" c="dimmed">{t('school.wizard.loading')}</Text>;
   const byKey = Object.fromEntries(st.steps.map((s) => [s.key, s]));

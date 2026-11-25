@@ -84,6 +84,8 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, onLogout, features, 
   ];
   const [tip, setTip] = useState(null);
   const [focus, setFocus] = useState(null); // 자동 생성 점검 줄의 「빈 것 목록 보기」 → 학교 자료 시수표의 빈 것 목록
+  const [setupGo, setSetupGo] = useState(null); // {k, n} — 옛 올리기 자리의 「학교 자료 넣기 n단계」 링크
+  const goSetup = (k) => { setSetupGo({ k, n: Date.now() }); setTab('school'); };
   const [want, setTab] = useState(admin && !phone ? 'roster' : admin ? 'grid' : 'mine');
   const items = visibleMenus(all, features); // 권한(show) AND 기관 스위치. 「기능 고르기」는 MENU_FEATURES 에 없어 늘 보인다
   useEffect(() => { if (jump) { setTab(jump.v); if (jump.f) setFocus(Date.now()); if (jump.v === 'approve') countWaiting(); } }, [jump]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -111,14 +113,14 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, onLogout, features, 
       <Tabs.List ref={listRef} mb="md" mr={phone ? 0 : 'md'} className={phone ? 'app-tabs-scroll' : undefined}>
         {bar.map((i) => <Tabs.Tab key={i.v} value={i.v}>{phone && i.phoneLabel ? i.phoneLabel : i.label}{i.v === 'me' && isNew && <span data-testid="new-dot" aria-label="새 기능이 있어요" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--mantine-color-red-6)', marginLeft: 6 }} />}</Tabs.Tab>)}
       </Tabs.List>
-      {on('roster') && <Panel v="roster" hint={H.roster}><Roster orgId={user.orgId} /></Panel>}
+      {on('roster') && <Panel v="roster" hint={H.roster}><Roster orgId={user.orgId} onGoSetup={admin ? goSetup : undefined} /></Panel>}
       {on('approve') && <Panel v="approve" hint={H.approve}><Approve orgId={user.orgId} onCount={setWaiting} /></Panel>}
-      {on('school') && <Panel v="school" hint={H.school}><SchoolPage user={user} goTab={setTab} focus={focus} /></Panel>}
+      {on('school') && <Panel v="school" hint={H.school}><SchoolPage user={user} goTab={setTab} focus={focus} setupGo={setupGo} /></Panel>}
       <Panel v="grid" hint={H.grid}><Grid P={P} admin={admin} /></Panel>
       {on('gen') && <Panel v="gen"><AutoGen P={P} onGoVacant={() => { setFocus(Date.now()); setTab('school'); }} /></Panel>}
       {on('softset') && <Panel v="softset" hint={H.softset}><SoftSettings P={P} /></Panel>}
       {on('orgcfg') && <Panel v="orgcfg" hint={H.orgcfg}><OrgConfig P={P} /></Panel>}
-      {on('out') && <Panel v="out" hint={H.out}><Output P={P} admin={admin} /></Panel>}
+      {on('out') && <Panel v="out" hint={H.out}><Output P={P} admin={admin} onGoSetup={admin ? goSetup : undefined} /></Panel>}
       {on('mine') && <Panel v="mine" hint={H.mine}><Mine P={P} /></Panel>}
       {on('att') && <Panel v="att" hint={H.att}><Attendance P={P} admin={admin} /></Panel>}
       {on('sub') && <Panel v="sub" hint={H.sub}><Substitute P={P} admin={admin} onGo={setTab} /></Panel>}

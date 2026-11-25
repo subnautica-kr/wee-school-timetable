@@ -3,6 +3,7 @@ import { Alert, Badge, Button, Checkbox, FileButton, Group, Modal, Paper, Select
 import { api } from '../api.js';
 import { downloadTemp } from './csv.js';
 import { t } from '../T.jsx';
+import SetupLink from '../school/SetupLink.jsx';
 import { 값이름 } from '../../../shared/text/index.js';
 import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 import { LinkModal, UnlinkedBox } from './AccountLink.jsx';
@@ -16,7 +17,7 @@ const FIELDS = [['name', '이름'], ['loginId', '아이디'], ['role', '역할']
 
 const download = downloadTemp;
 
-export default function Roster({ orgId }) {
+export default function Roster({ orgId, onGoSetup }) {
   const base = `/orgs/${orgId}/roster`;
   const cfg = useOrgConfig(`/orgs/${orgId}`);
   const roleData = ROLES.map((r) => ({ value: r, label: roleLabel(cfg, r) })); // 권한 키는 그대로, 보이는 글자만
@@ -170,6 +171,7 @@ export default function Roster({ orgId }) {
       <Group>
         <Button variant="default" onClick={getTemplate}>엑셀 양식 내려받기</Button>
         <FileButton onChange={pick} accept=".xlsx">{(p) => <Button variant="default" {...p}>엑셀 올리기</Button>}</FileButton>
+        <SetupLink step="roster" onGo={onGoSetup} />
       </Group>
 
       {(hv.noClass.length > 0 || hv.noTeacher.length > 0) && (
