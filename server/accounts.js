@@ -106,10 +106,11 @@ export async function moveInFrom(db, userId, orgId) {
   )).rows;
 }
 // 앞 학교 줄을 「전출」로 — 연결(linkAccount)보다 먼저 불러야 새 학교 줄이 본 소속이 된다
-export async function moveOut(db, { from, orgId, membershipId, byUserId }) {
+// action 은 부른 길의 감사 이름(가입·승인은 signup.move · 전출 요청 승인은 transfer.approve 등 — 이름표는 shared/audit-labels.js)
+export async function moveOut(db, { from, orgId, membershipId, byUserId, action = 'signup.move' }) {
   if (!from.length) return;
   await db.query(`UPDATE membership SET status = $2 WHERE id = ANY($1::bigint[])`, [from.map((x) => x.id), MEMBER_STATUS.TRANSFERRED]);
-  await audit(db, { orgId, userId: byUserId, action: 'signup.move', table: 'membership', rowId: membershipId, after: { from: from.map((x) => Number(x.id)) } });
+  await audit(db, { orgId, userId: byUserId, action, table: 'membership', rowId: membershipId, after: { from: from.map((x) => Number(x.id)) } });
 }
 
 // 30일 동안 묶음에 그대로 있으면 저절로 내보내고 학교 소식 한 줄(기관 관리자에게 정리 의무를 지우지 않는다)

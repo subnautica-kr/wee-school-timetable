@@ -20,6 +20,7 @@ async function boot(t) {
   const base = `http://127.0.0.1:${server.address().port}`;
   t.after(async () => {
     server.close();
+    await pool.query(`DELETE FROM transfer_request WHERE from_org = ANY($1::bigint[]) OR to_org = ANY($1::bigint[])`, [orgs]);
     await pool.query(`DELETE FROM invite_code WHERE org_id = ANY($1::bigint[])`, [orgs]);
     await pool.query(`DELETE FROM unlinked_account WHERE org_id = ANY($1::bigint[])`, [orgs]);
     await cleanupOrgs(pool, orgs, tag);
@@ -169,7 +170,7 @@ test('가입 승인: 전입 코드 대기 건은 승인 순간 앞 학교 줄이
   assert.equal(Number((await f.lineUser(LA)).user_id), u.id);
 });
 
-test('가입 승인: 「이 계정으로 연결」 — 휴면 계정은 연결·원래 대기 닫힘 · 다른 학교 재직이면 409 · 후보 밖 계정 409', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {
+test('가입 승인: 「이 계정으로 연결」 — 휴면 계정은 연결·원래 대기 닫힘 · 다른 학교 재직이면 전출 요청 202 · 후보 밖 계정 409', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {
   const f = await boot(t);
   const A = await f.mkOrg('라학교');
   const B = await f.mkOrg('딴학교');
@@ -202,8 +203,8 @@ test('가입 승인: 「이 계정으로 연결」 — 휴면 계정은 연결·
   await f.line(B, nm2, null, busy.id);
   await f.pending(A, L2, dup2.id);
   const r = await a.call('POST', `${base}/approvals/${dup2.id}/use-other`, { userId: busy.id });
-  assert.equal(r.status, 409);
-  assert.equal(r.json.code, 'roster.err.other_active');
+  assert.equal(r.status, 202, JSON.stringify(r.json));
+  assert.equal(r.json.transferRequested, true);
   assert.equal((await f.lineUser(L2)).user_id, null);
 });
 

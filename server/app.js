@@ -29,6 +29,7 @@ import { trashRouter } from './routes/trash.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { meRouter } from './routes/me.js';
 import { boardRouter, recordServerError } from './routes/board.js';
+import { transferRouter } from './routes/transfer.js';
 import { preCompressed } from './precompressed.js';
 
 const PgStore = connectPgSimple(session);
@@ -138,6 +139,7 @@ export function createApp(pool, opts = {}) {
   app.use('/api/orgs/:orgId', softWeightsRouter(pool));
   app.use('/api/orgs/:orgId', substituteRouter(pool, opts));
   app.use('/api/orgs/:orgId', bookingRouter(pool));
+  app.use('/api/orgs/:orgId', transferRouter(pool)); // 전출 요청(T-1322b①)
   app.use('/api/orgs/:orgId', exportRouter(pool));
   app.use('/api/orgs/:orgId', backupRouter(pool));
   app.use('/api/orgs/:orgId', trashRouter(pool));

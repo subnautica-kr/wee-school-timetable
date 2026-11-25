@@ -43,6 +43,7 @@ test('기관 경계(전 경로): A 세션으로 B 기관·B 자원을 두드리�
       if (r.path.includes('/special-room-groups/')) return B.group;
       if (r.path.includes('/classrooms/')) return B.class;
       if (r.file === 'admin.js') return f.orgB;
+      if (r.file === 'transfer.js') return B.mem; // 전출 요청 번호 — 남의 기관 것이든 없는 것이든 404
     }
     throw new Error(`모르는 매개변수 ${name} (${r.method} ${r.path}) — 이 시험의 idFor 에 더할 것`);
   };

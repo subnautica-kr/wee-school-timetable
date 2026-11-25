@@ -16,6 +16,7 @@ export const DEFAULTS = {
   features: Object.fromEntries(FEATURES.map((f) => [f.key, true])), // 기능 스위치 — 기본은 전부 켬(지금 쓰는 기관이 그대로 보인다). 새 기관만 NEW_ORG_FEATURES 를 심는다
   // 한 칸에 교사 둘(둘째 교사)을 학교가 어떻게 다룰지. inSubstitute: 둘째 교사로만 든 칸도 그 교사 결강(하루 결강)에 넣나 · inSoftScore: 자동 생성의 권장 점수(연강·하루 수업 수 등)가 둘째 교사 칸도 세나
   secondTeacher: { inSubstitute: true, inSoftScore: false },
+  transferAutoApprove: false, // 전출 요청 자동 승인 — 보내는 학교(지금 소속 학교)의 설정. 켜면 다른 학교의 전출 요청을 묻지 않고 승인(기본 끔)
   roomCapacity: { count: 'students' }, // 특별실 정원 합을 학생 수('students')로 볼지 반 수('classes')로 볼지. 수위는 rule_levels.room_capacity
 };
 

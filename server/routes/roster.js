@@ -13,6 +13,7 @@ import { fail } from '../fail.js';
 import { t, 값이름 } from '../../shared/text/index.js';
 import { MEMBER_STATUS, MEMBER_STATUS_LOGIN, ROLE, DORMANT_REASON, TRANSFER_STATUS, UNLINKED_REASON, INVITE_KIND } from '../../shared/codes.js';
 import { linkAccount, unlinkAccount, withTx } from '../link.js';
+import { homeOrgOf, requestTransfer } from './transfer.js';
 import { notify } from '../notify.js';
 import { sameName, sameBirth, matchPerson } from '../match.js';
 import { CEIL, dutyFromText, dutyKnown, dutyWarnings, limitWarnings, loadConfig, withWarnings } from '../orgConfig.js';
@@ -277,10 +278,10 @@ export function rosterRouter(pool) {
   };
   const userByLogin = async (loginId) =>
     (await pool.query(`SELECT id, login_id, name FROM app_user WHERE lower(login_id) = lower($1) AND deleted_at IS NULL`, [loginId])).rows[0];
-  const linkIn = z.object({ loginId: z.string().trim().regex(ID_RE), force: z.boolean().optional() });
+  const linkIn = z.object({ loginId: z.string().trim().regex(ID_RE), force: z.boolean().optional(), concurrent: z.boolean().optional() });
 
   // 대조 경고 둘(이름·생년월일 다름 / 같은 사람 계정이 또 있음) — 막지 않고 알린다. 경고가 있으면 409 needConfirm, force 면 그대로 잇는다.
-  const linkChecked = async (req, res, ln, user, force) => {
+  const linkChecked = async (req, res, ln, user, force, concurrent = false) => {
     if (ln.user_id != null) return fail(res, 409, Number(ln.user_id) === Number(user.id) ? 'roster.err.already_linked' : 'roster.err.line_taken');
     if (!force) {
       const m = await matchPerson(pool, { name: ln.name, birthDate: ln.birth_date, userId: user.id });
@@ -297,12 +298,25 @@ export function rosterRouter(pool) {
       }
       if (warnings.length) return fail(res, 409, 'roster.err.need_confirm', undefined, { needConfirm: true, warnings });
     }
-    const r = await linkAccount(pool, { membershipId: ln.id, userId: user.id, byUserId: req.session.userId });
+    // 다른 학교 재직(본 소속) 계정 — 「겸임으로 연결」이 아니면 그 학교에 전출 요청(T-1322b①). 겸임 여부는 여기서 직접 넣는다.
+    const by = req.session.userId;
+    const inOrg = (await pool.query(`SELECT 1 FROM membership WHERE user_id = $1 AND org_id = $2 AND deleted_at IS NULL`, [user.id, req.orgId])).rows[0];
+    if (inOrg) return fail(res, 409, 'roster.err.account_in_org');
+    const home = await homeOrgOf(pool, user.id, req.orgId);
+    if (home != null && !concurrent) {
+      const out = await withTx(pool, (c) => requestTransfer(c, { fromOrg: home, toOrg: req.orgId, userId: user.id, toMembershipId: ln.id, byUserId: by }));
+      if (out.error) return fail(res, out.status === 404 ? 409 : out.status ?? 409, out.error);
+      if (out.autoApproved) return res.json({ ok: true, membershipId: out.membershipId, userId: out.userId, isConcurrent: false, loginId: user.login_id, autoApproved: true });
+      return res.status(202).json({ transferRequested: true, requestId: out.requestId, expiresAt: out.expiresAt, loginId: user.login_id });
+    }
+    const r = await linkAccount(pool, { membershipId: ln.id, userId: user.id, byUserId: by, concurrent: home != null });
     if (r.error) return fail(res, 409, r.error);
     res.json({ ...r, loginId: user.login_id });
   };
 
-  // 갈래 ① 아이디로 연결 — { loginId, force? } → { ok, membershipId, userId, isConcurrent, loginId } · 경고면 409 { needConfirm, warnings }
+  // 갈래 ① 아이디로 연결 — { loginId, force?, concurrent?(「겸임으로 연결」) } → { ok, membershipId, userId, isConcurrent, loginId } · 경고면 409 { needConfirm, warnings }
+  //   다른 학교 재직 계정이고 concurrent 가 아니면 202 { transferRequested, requestId, expiresAt, loginId }(전출 요청 · 승인 대기)
+  //   보내는 학교가 자동 승인을 켰으면 그 자리에서 옮겨 와 200 { ok, …, autoApproved: true }
   r.post('/:mid/link', async (req, res, next) => {
     try {
       const ln = await lineFor(req.params.mid, req.orgId);
@@ -311,7 +325,7 @@ export function rosterRouter(pool) {
       if (!p.success) return fail(res, 400, 'roster.err.bad_input');
       const user = await userByLogin(p.data.loginId);
       if (!user) return fail(res, 404, 'roster.err.account_not_found');
-      await linkChecked(req, res, ln, user, p.data.force);
+      await linkChecked(req, res, ln, user, p.data.force, p.data.concurrent);
     } catch (e) {
       next(e);
     }
@@ -593,11 +607,16 @@ export function rosterRouter(pool) {
         const m = await matchPerson(c, { name: ln.name, birthDate: ln.birth_date, userId: pend.user_id });
         const other = m.candidates.find((x) => x.userId === p.data.userId && x.userId !== Number(pend.user_id));
         if (!other) return { error: 'roster.err.other_not_found', status: 409 };
-        const active = (await c.query(
-          `SELECT 1 FROM membership WHERE user_id = $1 AND org_id <> $2 AND deleted_at IS NULL AND status = ANY($3::text[]) AND role <> $4 LIMIT 1`,
-          [other.userId, req.orgId, MEMBER_STATUS_LOGIN, ROLE.SYSADMIN])).rows[0];
-        if (active) return { error: 'roster.err.other_active', status: 409 };
-        const l = await linkAccount(c, { membershipId: ln.id, userId: other.userId, byUserId: by });
+        // 다른 학교 재직(본 소속) 계정이면 「아이디로 연결」과 같은 길 — 그 학교에 전출 요청(T-1322b①). 이 계정을 고른 순간 원래 대기 건은 닫는다.
+        const home = await homeOrgOf(c, other.userId, req.orgId);
+        if (home != null) {
+          const tr = await requestTransfer(c, { fromOrg: home, toOrg: req.orgId, userId: other.userId, toMembershipId: ln.id, byUserId: by });
+          if (tr.error) return { ...tr, status: tr.status === 404 ? 409 : tr.status };
+          await c.query(`UPDATE unlinked_account SET resolved_at = now() WHERE id = $1 AND resolved_at IS NULL`, [pend.id]);
+          if (tr.autoApproved) return { ok: true, userId: other.userId, membershipId: Number(ln.id), loginId: other.loginId, autoApproved: true };
+          return { transferRequested: true, requestId: tr.requestId, expiresAt: tr.expiresAt, loginId: other.loginId };
+        }
+        const l = await linkAccount(c, { membershipId: ln.id, userId: other.userId, byUserId: by, concurrent: false });
         if (l.error) return { ...l, status: 409 };
         await c.query(`UPDATE unlinked_account SET resolved_at = now() WHERE id = $1 AND resolved_at IS NULL`, [pend.id]);
         await audit(c, { orgId: req.orgId, userId: by, action: 'roster.approve-other', table: 'membership', rowId: ln.id, after: { userId: other.userId, pendingUserId: Number(pend.user_id) } });
@@ -607,7 +626,7 @@ export function rosterRouter(pool) {
         return { ok: true, userId: other.userId, membershipId: Number(ln.id), loginId: other.loginId };
       });
       if (out.error) return out.status === 404 ? nf(res) : sendFail(res, out);
-      res.json(out);
+      res.status(out.transferRequested ? 202 : 200).json(out);
     } catch (e) {
       next(e);
     }
@@ -698,8 +717,9 @@ export function rosterRouter(pool) {
         const r = await linkAccount(c, { membershipId: mid, userId: l.userId, byUserId });
         out.push(r.error ? { ...l, id: mid, done: false, code: r.error, msg: t(r.error) } : { ...l, id: mid, done: true });
       } else {
-        const has = (await c.query(`SELECT 1 FROM transfer_request WHERE user_id = $1 AND to_org = $2 AND status = $3`, [l.userId, orgId, TRANSFER_STATUS.WAITING])).rows[0];
-        if (!has) await c.query(`INSERT INTO transfer_request (from_org, to_org, user_id, to_membership_id, created_by) VALUES ($1,$2,$3,$4,$5)`, [l.fromOrg, orgId, l.userId, mid, byUserId]);
+        // 전출 요청 — 보내는 학교가 자동 승인을 켰으면 requestTransfer 가 그 자리에서 승인한다(T-1322b①)
+        const tr = await requestTransfer(c, { fromOrg: l.fromOrg, toOrg: orgId, userId: l.userId, toMembershipId: mid, byUserId });
+        if (tr.error) { out.push({ ...l, id: mid, done: false, code: tr.error, msg: t(tr.error) }); continue; }
         out.push({ ...l, id: mid, done: true });
       }
     }

@@ -28,7 +28,8 @@ const UNLINKED_DAYS = 30;
 
 // 연결: 명단 줄(membershipId)에 계정(userId)을 잇는다.
 // 반환 { ok: true, membershipId, userId, isConcurrent } 또는 { error }
-export async function linkAccount(db, { membershipId, userId, byUserId = null }) {
+//   concurrent — 겸임 여부를 부른 쪽이 직접 넣는다(true/false). 안 주면 예전처럼 013 트리거가 정한다(트리거 걷기는 T-1322b②).
+export async function linkAccount(db, { membershipId, userId, byUserId = null, concurrent = null }) {
   return withTx(db, async (c) => {
     const line = (await c.query(
       `SELECT id, org_id, user_id, deleted_at FROM membership WHERE id = $1 FOR UPDATE`, [membershipId],
@@ -47,8 +48,8 @@ export async function linkAccount(db, { membershipId, userId, byUserId = null })
 
     // 계정 칸 · 연결 시각 — 본 소속이 이미 있으면 013 트리거가 겸임으로 둔다
     const up = (await c.query(
-      `UPDATE membership SET user_id = $2, linked_at = now(), linked_by = $3 WHERE id = $1 RETURNING is_concurrent`,
-      [membershipId, userId, byUserId],
+      `UPDATE membership SET user_id = $2, linked_at = now(), linked_by = $3, is_concurrent = COALESCE($4::boolean, is_concurrent) WHERE id = $1 RETURNING is_concurrent`,
+      [membershipId, userId, byUserId, concurrent],
     )).rows[0];
     // 처음 연결 시각 · 휴면 풀기
     await c.query(
