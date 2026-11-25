@@ -9,7 +9,7 @@ import { readSeenVersion } from '../seenVersion.js';
 const POLL_MS = 60_000;
 const when = (s) => new Date(s).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-export default function Bell({ onGoTab, onGoMe }) {
+export default function Bell({ onGoTab, onGoMe, onOpenBoard }) {
   const [data, setData] = useState(null);
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -55,7 +55,7 @@ export default function Bell({ onGoTab, onGoMe }) {
           )}
           {items.length === 0 && !isNew && <Text size="sm" c="dimmed">{t('notify.panel.news_empty')}</Text>}
           {items.map((n) => (
-            <UnstyledButton key={n.id} onClick={() => readOne(n)} data-read={n.read ? '1' : '0'}>
+            <UnstyledButton key={n.id} onClick={() => { readOne(n); const m = /^board:(\d+)$/.exec(n.link || ''); if (m && onOpenBoard) { setOpen(false); onOpenBoard(Number(m[1])); } }} data-read={n.read ? '1' : '0'}>
               <Text size="sm" fw={n.read ? 400 : 700} c={n.read ? 'dimmed' : undefined}>{n.text}</Text>
               <Text size="xs" c="dimmed">{when(n.createdAt)}</Text>
             </UnstyledButton>
@@ -66,7 +66,7 @@ export default function Bell({ onGoTab, onGoMe }) {
   );
 }
 
-// 종 옆 「도움·요청」 단추 자리 — 눌러도 아직 아무 일도 없다(다음 판이 onClick 을 잇는다).
+// 종 옆 「도움·요청」 단추 — onClick 이 도움·요청 창(board/BoardModal)을 연다.
 export function HelpRequestButton({ onClick }) {
   return <Button variant="default" onClick={onClick} data-testid="help-request-btn">{t('notify.help.button')}</Button>;
 }
