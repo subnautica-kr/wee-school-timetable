@@ -8,7 +8,7 @@ import { currentTerm } from './school.js';
 import { CEIL, limitWarnings, loadConfig, periodsOf, withWarnings } from '../orgConfig.js';
 import { audit } from '../audit.js';
 import { removeWithCascade } from '../cascade.js';
-import { expandMaster } from './loads.js';
+import { expandMaster, inactiveMembers, vacantOf } from './loads.js';
 
 // 자동 생성 짝 — 생성 자체는 브라우저 웹 워커가 한다. 서버는 재료 내주기 · 시안 저장 · 복제 · 삭제 · 확정만.
 // 규칙 위반은 거부하지 않고 목록으로 저장한다. 거부는 권한·기관 경계·형식뿐.
@@ -146,6 +146,8 @@ export function generateRouter(pool) {
         periods: periodCfg,
         subjects: await q(`SELECT id, name, short_name FROM subject WHERE org_id = $1 AND deleted_at IS NULL ORDER BY is_default DESC, id`),
         teachers: await q(`SELECT m.id, m.name FROM membership m WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.status = '사용' AND m.role <> '시스템관리자' ORDER BY m.name`),
+        inactive_teachers: await inactiveMembers(pool, o), // 재직 아닌 소속(이름·상태)
+        vacant: { count: (await vacantOf(pool, o, t.id)).count }, // 생성 전 점검: 담당이 빈 수업 n건
         rooms: await q(`SELECT id, name, purpose, capacity FROM special_room WHERE org_id = $1 AND deleted_at IS NULL ORDER BY id`),
         // 특별실 묶음(T-1312): 구성원은 살아 있는 같은 기관 방만
         room_groups: await q(`SELECT g.id, COALESCE((SELECT array_agg(s.id ORDER BY s.id) FROM special_room s WHERE s.id = ANY(g.room_ids) AND s.org_id = g.org_id AND s.deleted_at IS NULL), '{}') AS room_ids FROM special_room_group g WHERE g.org_id = $1 AND g.deleted_at IS NULL ORDER BY g.id`),
