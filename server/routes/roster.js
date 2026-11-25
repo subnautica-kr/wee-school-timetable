@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import { requireOrgAction } from '../guard.js';
 import { createAccount, createLine, createUserOnly, releaseUnlinked, resetPassword, moveInFrom, moveOut, ID_RE } from '../accounts.js';
 import { issueInvite } from '../invite.js';
+import { takeContactNudge } from '../orgContact.js';
 import { getRuleLevels } from '../rules.js';
 import { currentTerm } from './school.js';
 import { audit, killSessions } from '../audit.js';
@@ -352,7 +353,7 @@ export function rosterRouter(pool) {
         return i;
       });
       if (out.error) return fail(res, 409, out.error);
-      res.status(201).json(out);
+      res.status(201).json({ ...out, nudge: out.first ? await takeContactNudge(pool, req.orgId) : false }); // nudge: 연락처 적기 권유 — 서버가 한 번만 true
     } catch (e) {
       next(e);
     }
@@ -509,6 +510,15 @@ export function rosterRouter(pool) {
     return { ok: true, userId: Number(user.id), membershipId: Number(ln.id), loginId: user.login_id, moved: from.length > 0 };
   };
   const sendFail = (res, out) => fail(res, out.status ?? 409, out.error, out.vars, out.extra);
+
+  // 연락처 적기 권유 — 승인 탭에 첫 승인 대기가 보일 때 한 번만 { show: true }(연락처가 비었고 아직 안 보였을 때)
+  r.post('/contact-nudge', async (req, res, next) => {
+    try {
+      res.json({ show: await takeContactNudge(pool, req.orgId) });
+    } catch (e) {
+      next(e);
+    }
+  });
 
   // 승인 대기 목록 — [{ userId, account:{loginId,name,birthDate,signedUpAt,orgs}, line:{id,name,birthDate,duty,taken}, kind, moveFrom:[학교], birthOnly, warnings }]
   r.get('/approvals', async (req, res, next) => {

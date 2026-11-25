@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Group, NumberInput, Switch, SegmentedControl, SimpleGrid, Stack, TagsInput, Text, TextInput, Title } from '@mantine/core';
 import { api } from '../api.js';
+import { t } from '../T.jsx';
 import { DEFAULTS, configPath, mergeConfig } from '../orgConfig.js';
 import DangerZone from './DangerZone.jsx';
 import { SUB_GRADES } from '../../../shared/sub-grades.js';
@@ -65,6 +66,7 @@ export default function OrgConfig({ P }) {
       <SimpleGrid cols={{ base: 1, xs: 3 }}>
         {ROLE_KEYS.map((r) => <TextInput key={r} label={r} value={c.roleLabels[r] || ''} onChange={(e) => set('roleLabels', { ...c.roleLabels, [r]: e.currentTarget.value })} />)}
       </SimpleGrid>
+      <TextInput label={t('roster.contact.label')} description={t('roster.contact.setting_hint')} value={c.contact || ''} maxLength={100} onChange={(e) => set('contact', e.currentTarget.value)} w={360} />
       <NumberInput label="월 근태 한도(비우면 없음)" min={0} value={c.attendanceMonthlyCap ?? ''} onChange={(v) => set('attendanceMonthlyCap', v === '' ? null : Number(v))} w={220} />
       <Group><Button onClick={save}>저장</Button><Button variant="default" onClick={() => setC(DEFAULTS)}>기본값으로 채우기</Button></Group>
       <DangerZone P={P} />

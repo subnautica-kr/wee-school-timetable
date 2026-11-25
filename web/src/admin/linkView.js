@@ -18,6 +18,3 @@ export const dateText = (iso) => {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
-
-// 연락처 적기 권유 — 학교에서 처음 낸 초대 코드이고 아직 한 번도 안 보였을 때만
-export const nudgeDue = (first, seen) => !!first && !seen;

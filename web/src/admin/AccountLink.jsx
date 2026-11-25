@@ -2,16 +2,16 @@ import { useState } from 'react';
 import { Accordion, Alert, Button, Group, Modal, Paper, SegmentedControl, Select, Stack, Text, TextInput } from '@mantine/core';
 import { api } from '../api.js';
 import { t } from '../T.jsx';
-import { dateText, daysLeft, freeLineOptions, needsConfirm, nudgeDue, warningLines } from './linkView.js';
+import { dateText, daysLeft, freeLineOptions, needsConfirm, warningLines } from './linkView.js';
+import ContactNudge from './ContactNudge.jsx';
 
 const fromV = (u) => ({ 이름: u.fromLineName }); // 문구-예외: 문구 변수 이름
 const expireV = (u) => ({ 날짜: dateText(u.expiresAt), 일: daysLeft(u.expiresAt) }); // 문구-예외: 문구 변수 이름
 const SEP = ' · ';
 const relV = (u) => ({ 이름: u?.name ?? '', 아이디: u?.loginId ?? '' }); // 문구-예외: 문구 변수 이름
 const codeV = (i) => ({ 코드: i.code, 날짜: dateText(i.expiresAt) }); // 문구-예외: 문구 변수 이름
-export const NUDGE_KEY = 'roster-contact-nudge';
-const seenNudge = () => { try { return localStorage.getItem(NUDGE_KEY); } catch { return '1'; } };
-const markNudge = () => { try { localStorage.setItem(NUDGE_KEY, '1'); } catch { /* 못 적어도 이번엔 닫힌다 */ } };
+
+const orgIdOf = (base) => base.split('/')[2]; // base = /orgs/<번호>/roster
 
 // 연결 요청 하나 — 409 needConfirm 이면 경고 목록을 보여 주고 「그래도 연결」로 force:true 다시 보낸다
 // 쓰는 법: const [link, linkBox, busy] = useLinker({ onLinked, onError }) · link(path, body, 이름) · 화면에 {linkBox}
@@ -66,7 +66,7 @@ export function LinkModal({ line, base, onClose, onChanged, onTemp, onError }) {
   const issue = () => guard(async () => {
     const r = await api('POST', `${base}/${line.id}/invite`);
     setInvite({ code: r.code, expiresAt: r.expiresAt }); setAgain(false); setCopied(false);
-    if (nudgeDue(r.first, seenNudge())) { setNudge(true); markNudge(); }
+    if (r.nudge) setNudge(true); // 서버가 「이 학교 첫 코드 · 연락처 빔 · 아직 안 보임」 일 때만 true — 한 번뿐
     await onChanged(); // 연결되면 코드는 무효라 명단은 그대로지만, 서버 쪽 변화를 한 번 맞춘다
   });
   const make = () => guard(async () => {
@@ -100,7 +100,7 @@ export function LinkModal({ line, base, onClose, onChanged, onTemp, onError }) {
                 </Group>
               </Alert>
             )}
-            {nudge && <Alert color="blue" withCloseButton onClose={() => setNudge(false)}>{t('roster.contact.nudge')}</Alert>}
+            {nudge && <ContactNudge orgId={orgIdOf(base)} onClose={() => setNudge(false)} />}
             {!invite && <Button loading={busy} onClick={issue}>{t('roster.link.invite_submit')}</Button>}
             {invite && !again && <Button variant="default" disabled={busy} onClick={() => setAgain(true)}>{t('roster.link.invite_again')}</Button>}
             {invite && again && (
