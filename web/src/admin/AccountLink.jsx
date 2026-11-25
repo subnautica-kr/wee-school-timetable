@@ -48,7 +48,7 @@ export function useLinker({ onLinked, onError }) {
 }
 
 // 줄 하나의 「계정 연결」 창 — 초대 코드 · 아이디로 연결 · 계정 만들어 주기
-export function LinkModal({ line, base, onClose, onChanged, onTemp, onError }) {
+export function LinkModal({ line, base, onClose, onChanged, onTemp, onError, onTransfer }) {
   const [tab, setTab] = useState('invite');
   const [loginId, setLoginId] = useState('');
   const [makeId, setMakeId] = useState('');
@@ -58,7 +58,7 @@ export function LinkModal({ line, base, onClose, onChanged, onTemp, onError }) {
   const [working, setWorking] = useState(false);
   const [nudge, setNudge] = useState(false);
   const [link, linkBox, linkBusy] = useLinker({
-    onLinked: async () => { await onChanged(); onClose(); },
+    onLinked: async (r) => { await onChanged(); onTransfer?.(r); onClose(); }, // 전출 요청이 나갔거나 그 자리에서 옮겨졌으면 안내 창
     onError,
   });
   if (!line) return null;

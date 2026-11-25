@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { t } from '../T.jsx';
 import { DEFAULTS, configPath, mergeConfig } from '../orgConfig.js';
 import DangerZone from './DangerZone.jsx';
+import { TransferAutoSwitch } from '../admin/Transfers.jsx';
 import { SUB_GRADES } from '../../../shared/sub-grades.js';
 
 const LIMIT_LABELS = {
@@ -25,7 +26,7 @@ export default function OrgConfig({ P }) {
   const save = async () => {
     setMsg(null); setWarn([]);
     try {
-      const { features: _f, ...rest } = c; // 스위치는 「기능 고르기」 혼자 저장한다(통째로 보내 덮지 않게)
+      const { features: _f, transferAutoApprove: _t, ...rest } = c; // 전출 자동 승인은 켜고 끄는 즉시 따로 저장한다 · 스위치는 「기능 고르기」 혼자 저장한다(통째로 보내 덮지 않게)
       const r = await api('PUT', configPath(P), rest);
       setC(mergeConfig(r.config || r));
       setWarn(Array.isArray(r.warnings) ? r.warnings : []);
@@ -67,6 +68,7 @@ export default function OrgConfig({ P }) {
         {ROLE_KEYS.map((r) => <TextInput key={r} label={r} value={c.roleLabels[r] || ''} onChange={(e) => set('roleLabels', { ...c.roleLabels, [r]: e.currentTarget.value })} />)}
       </SimpleGrid>
       <TextInput label={t('roster.contact.label')} description={t('roster.contact.setting_hint')} value={c.contact || ''} maxLength={100} onChange={(e) => set('contact', e.currentTarget.value)} w={360} />
+      <TransferAutoSwitch P={P} value={c.transferAutoApprove} />
       <NumberInput label="월 근태 한도(비우면 없음)" min={0} value={c.attendanceMonthlyCap ?? ''} onChange={(v) => set('attendanceMonthlyCap', v === '' ? null : Number(v))} w={220} />
       <Group><Button onClick={save}>저장</Button><Button variant="default" onClick={() => setC(DEFAULTS)}>기본값으로 채우기</Button></Group>
       <DangerZone P={P} />

@@ -7,6 +7,10 @@ import SetupLink from '../school/SetupLink.jsx';
 import { 값이름 } from '../../../shared/text/index.js';
 import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 import { LinkModal, UnlinkedBox } from './AccountLink.jsx';
+import BulkLink from './BulkLink.jsx';
+import { TransferNote } from './Transfers.jsx';
+import { useLastAdmin } from './LastAdminAsk.jsx';
+import { flaggedRows, forcePath, mergeBulkStatus, transferNote } from './forceView.js';
 import { accountColumnShown } from './linkView.js';
 import { dutyOptions, roleLabel, useOrgConfig } from '../orgConfig.js';
 
@@ -49,6 +53,9 @@ export default function Roster({ orgId, onGoSetup }) {
   const [sel, setSel] = useState(() => new Set()); // 여러 줄 고르기
   const [bulkStatus, setBulkStatus] = useState(null);
   const [bulkRes, setBulkRes] = useState(null);
+  const [ask, askBox, guarded] = useLastAdmin(); // 마지막 기관 관리자 경고 → 확인하면 force 로 다시
+  const [bulkLink, setBulkLink] = useState(false); // 계정 일괄 연결 창
+  const [moveNote, setMoveNote] = useState(null); // 학교 옮기기 안내(전출 요청이 나갔거나 그 자리에서 옮겨짐)
   const statusData = STATUS_KEYS.map((v) => ({ value: v, label: 값이름('membership.status', v) }));
   const run = async (fn) => {
     if (busy) return;
@@ -81,18 +88,23 @@ export default function Roster({ orgId, onGoSetup }) {
     });
   };
   const patch = (m, body) => run(async () => {
-    const r = await api('PATCH', `${base}/${m.id}`, body);
-    setNote(vacatedCounts(r));
+    const r = await guarded((force) => api('PATCH', `${base}/${m.id}`, force ? { ...body, force: true } : body));
+    if (r) setNote(vacatedCounts(r));
   });
   const bulkApply = () => run(async () => {
-    const r = await api('POST', `${base}/status`, { ids: [...sel], status: bulkStatus });
+    let r = await api('POST', `${base}/status`, { ids: [...sel], status: bulkStatus });
+    const flagged = flaggedRows(r.results); // 마지막 기관 관리자가 든 줄은 멈춰 있다 — 한 번 묻고 그 줄만 force 로 다시
+    if (flagged.length) {
+      const names = flagged.map((x) => rows.find((m) => m.id === x.id)?.name ?? '').filter(Boolean).join(', ');
+      if (await ask(flagged[0].text, names)) r = mergeBulkStatus(r, await api('POST', `${base}/status`, { ids: flagged.map((x) => x.id), status: bulkStatus, force: true }));
+    }
     setNote(vacatedCounts(r));
     setBulkRes({ changed: r.changed, failed: (r.results || []).filter((x) => !x.ok) });
     setSel(new Set()); setBulkStatus(null);
   });
   const doUnlink = () => run(async () => {
-    await api('DELETE', `${base}/${unlinkAsk.id}/link`);
-    setUnlinkAsk(null);
+    const r = await guarded((force) => api('DELETE', forcePath(`${base}/${unlinkAsk.id}/link`, force)));
+    if (r) setUnlinkAsk(null);
   });
   const post = (m, what) => run(async () => {
     const r = await api('POST', `${base}/${m.id}/${what}`);
@@ -132,7 +144,7 @@ export default function Roster({ orgId, onGoSetup }) {
         : <Button size="xs" variant="default" disabled={busy} onClick={() => setLinkLine(m)}>{t('roster.link.menu')}</Button>}
       {m.hasAccount && <Button size="xs" variant="default" disabled={busy} onClick={() => post(m, 'reset-password')}>{t('roster.row.reset')}</Button>}
       <Button size="xs" variant="subtle" color="red" disabled={busy} onClick={() => del(cascadeOpts(`/orgs/${orgId}`, 'membership', m.id, m.name, `${base}/${m.id}`, {
-        run: async () => { const r = await api('DELETE', `${base}/${m.id}`); setMoved(r.unlinked ? m.name : null); }, title: t('roster.del.title', { 이름: m.name }), yes: t('roster.del.yes'), onDone: load,
+        run: async () => { const r = await guarded((force) => api('DELETE', forcePath(`${base}/${m.id}`, force))); if (r) setMoved(r.unlinked ? m.name : null); }, title: t('roster.del.title', { 이름: m.name }), yes: t('roster.del.yes'), onDone: load,
         lead: t('roster.del.lead') + (hv.byMember[m.id] ? ` ${t('roster.del.has_duty')}` : '') }))}>{t('roster.row.delete')}</Button>
     </Group>
   );
@@ -146,6 +158,8 @@ export default function Roster({ orgId, onGoSetup }) {
   return (
     <Stack>
       {delBox}
+      {askBox}
+      <TransferNote note={moveNote} onClose={() => setMoveNote(null)} />
       <Title order={4}>{t('roster.head.title', { 수: rows.length })}</Title>
       {err && <Alert color="red">{err}</Alert>}
       {note && <Alert color="yellow" withCloseButton onClose={() => setNote(null)}>{t('roster.bulk.vacated', note)}</Alert>}
@@ -171,6 +185,7 @@ export default function Roster({ orgId, onGoSetup }) {
       <Group>
         <Button variant="default" onClick={getTemplate}>엑셀 양식 내려받기</Button>
         <FileButton onChange={pick} accept=".xlsx">{(p) => <Button variant="default" {...p}>엑셀 올리기</Button>}</FileButton>
+        <Button variant="default" onClick={() => setBulkLink(true)}>{t('roster.bulk_link.open')}</Button>
         <SetupLink step="roster" onGo={onGoSetup} />
       </Group>
 
@@ -223,7 +238,8 @@ export default function Roster({ orgId, onGoSetup }) {
       </Table.ScrollContainer>
 
       <UnlinkedBox base={base} items={unlinked} rows={rows} onChanged={load} onError={setErr} />
-      {linkLine && <LinkModal line={linkLine} base={base} onClose={() => setLinkLine(null)} onChanged={load} onTemp={setTemp} onError={setErr} />}
+      {linkLine && <LinkModal line={linkLine} base={base} onClose={() => setLinkLine(null)} onChanged={load} onTemp={setTemp} onError={setErr} onTransfer={(r) => setMoveNote(transferNote(r))} />}
+      {bulkLink && <BulkLink base={base} lines={rows} onClose={() => setBulkLink(false)} onChanged={load} />}
       <Modal opened={!!unlinkAsk} onClose={() => setUnlinkAsk(null)} title={t('roster.unlink.title', { 이름: unlinkAsk?.name ?? '' })} centered>
         {unlinkAsk && (
           <Stack>

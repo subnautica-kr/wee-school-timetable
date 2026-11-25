@@ -5,6 +5,7 @@ import { t } from '../T.jsx';
 import { dateText, freeLineOptions, needsConfirm, warningLines } from './linkView.js';
 import { showBirth } from '../signup/birth.js';
 import ContactNudge from './ContactNudge.jsx';
+import Transfers from './Transfers.jsx';
 
 const skipV = (s) => ({ 이름: s.name, 사유: s.text }); // 문구-예외: 문구 변수 이름
 const orgsV = (a) => ({ 학교: a.join(', ') }); // 문구-예외: 문구 변수 이름
@@ -30,11 +31,14 @@ export default function Approve({ orgId, onCount, onChanged }) {
   const [skipped, setSkipped] = useState([]);
   const [nudge, setNudge] = useState(false);
   const asked = useRef(false);
+  const [tn, setTn] = useState(0); // 받은 전출 요청 수 — 탭 표시에 더한다
+  const nItems = useRef(0);
+  const tell = (a, b) => { nItems.current = a; onCount?.(a + b); };
 
   const load = async () => {
     try {
       const [a, r] = await Promise.all([api('GET', `${base}/approvals`), api('GET', base)]);
-      setItems(a); setRows(r); onCount?.(a.length);
+      setItems(a); setRows(r); tell(a.length, tn);
       if (a.length > 0 && !asked.current) { // 첫 승인 대기가 보일 때 한 번 — 보일 차례인지는 서버가 정한다(권유는 학교에서 한 번뿐)
         asked.current = true;
         api('POST', `${base}/contact-nudge`).then((n) => { if (n.show) setNudge(true); }).catch(() => {});
@@ -75,8 +79,8 @@ export default function Approve({ orgId, onCount, onChanged }) {
     if (!uid) return;
     setErr(''); setMsg(''); setBusy(true);
     try {
-      await api('POST', `${base}/approvals/${it.userId}/use-other`, { userId: uid });
-      setMsg(t('roster.approve.done', { 이름: it.account.name })); // 문구-예외: 문구 변수 이름
+      const r = await api('POST', `${base}/approvals/${it.userId}/use-other`, { userId: uid });
+      setMsg(r.transferRequested ? t('roster.bulk_link.pending') : t('roster.approve.done', { 이름: it.account.name })); // 문구-예외: 문구 변수 이름
       await after();
     } catch (e) {
       if (e.status === 409 && e.body?.lineTaken) await takenAgain(it);
@@ -105,6 +109,7 @@ export default function Approve({ orgId, onCount, onChanged }) {
   return (
     <Stack>
       <Text size="sm">{t('roster.approve.lead')}</Text>
+      <Transfers orgId={orgId} onCount={(n) => { setTn(n); tell(nItems.current, n); }} onChanged={onChanged} />
       {nudge && <ContactNudge orgId={orgId} onClose={() => setNudge(false)} />}
       {err && <Alert color="red" withCloseButton onClose={() => setErr('')}>{err}</Alert>}
       {msg && <Alert color="green" withCloseButton onClose={() => setMsg('')}>{msg}</Alert>}
@@ -113,7 +118,7 @@ export default function Approve({ orgId, onCount, onChanged }) {
           {skipped.map((s) => <Text key={s.userId} size="sm">{t('roster.approve.skip_reason', skipV(s))}</Text>)}
         </Alert>
       )}
-      {items.length === 0 && <Text c="dimmed">{t('roster.approve.empty')}</Text>}
+      {items.length === 0 && tn === 0 && <Text c="dimmed">{t('roster.approve.empty')}</Text>}
       {items.length > 0 && (
         <Group>
           <Checkbox label={t('roster.approve.pick_all')} checked={items.every((x) => sel[x.userId])}

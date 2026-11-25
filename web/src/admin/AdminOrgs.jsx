@@ -5,6 +5,8 @@ import { downloadTemp } from './csv.js';
 import { useDelete } from '../DeleteDialog.jsx';
 import { deleteOrgBlock } from '../deleteDialog.js';
 import AdminAccounts from './AdminAccounts.jsx';
+import { useLastAdmin } from './LastAdminAsk.jsx';
+import { forcePath } from './forceView.js';
 
 // 시스템 관리자 화면 — 기관 등록 · 상태 · 첫 관리자 · 비밀번호 초기화. 기관 안 데이터는 이 화면에 없다.
 export default function AdminOrgs() {
@@ -18,6 +20,7 @@ export default function AdminOrgs() {
   const [concForm, setConcForm] = useState({ loginId: '', role: '교직원' });
   const [reset, setReset] = useState(null); // { org, admins }
   const [del, delBox] = useDelete();
+  const [, askBox, guarded] = useLastAdmin();
 
   const load = () => api('GET', '/admin/orgs').then(setOrgs).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
@@ -70,19 +73,20 @@ export default function AdminOrgs() {
     });
   };
   const demote = (a) => run(async () => {
-    await api('POST', `/admin/orgs/${reset.org.id}/admins/${a.userId}/demote`);
+    await guarded((force) => api('POST', forcePath(`/admin/orgs/${reset.org.id}/admins/${a.userId}/demote`, force)));
     setReset({ org: reset.org, admins: await api('GET', `/admin/orgs/${reset.org.id}/admins`) });
   });
   const askDeleteUser = (a) => del({
     title: `계정 「${a.loginId}」 지우기`, danger: true, typeLabel: '아이디', expect: a.loginId, yes: '계정 지우기',
     lead: `${a.name}님의 계정을 지웁니다. 되살리기는 없습니다. 관리자 자리만 비우려면 「관리자에서 빼기」를 쓰세요.`,
-    run: (typed) => api('DELETE', `/admin/users/${a.userId}`, { confirm: typed }),
+    run: (typed) => guarded((force) => api('DELETE', `/admin/users/${a.userId}`, force ? { confirm: typed, force: true } : { confirm: typed })),
     onDone: () => openReset(reset.org),
   });
 
   return (
     <Stack>
       {delBox}
+      {askBox}
       <Title order={4}>기관 관리</Title>
       {err && <Alert color="red">{err}</Alert>}
       <form onSubmit={register}>
