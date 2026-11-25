@@ -165,8 +165,9 @@ export function rosterRouter(pool) {
     if (!hit.length) return null;
     const 담임 = hit.reduce((a, x) => a + x.homeroom, 0);
     const 수업 = hit.reduce((a, x) => a + x.classes, 0);
+    const 상태 = 값이름('membership.status', hit[0].status);
     const text = hit.length === 1
-      ? t('roster.notice.vacated', { 이름: hit[0].name ?? '', 상태: 값이름('membership.status', hit[0].status), 담임, 수업 })
+      ? t('roster.notice.vacated', { 이름: hit[0].name ?? '', 상태, 담임, 수업 })
       : t('roster.notice.vacated_many', { 명: hit.length, 담임, 수업 });
     return (await notify(pool, { orgId, kind: 'roster_vacated', text })).id;
   };

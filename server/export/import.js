@@ -115,9 +115,7 @@ export const rosterSpec = {
   ],
   context: async (db, orgId) => ({ cfg: await loadConfig(db, orgId) }),
   rows: async (db, orgId) => (await db.query(
-    `SELECT m.id, m.name, m.duty, to_char(m.birth_date, 'YYYY-MM-DD') AS birth, u.login_id
-       FROM membership m LEFT JOIN app_user u ON u.id = m.user_id AND u.deleted_at IS NULL
-      WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.role <> '시스템관리자' ORDER BY m.name, m.id`, // 문구-예외: 저장 값
+    `SELECT m.id, m.name, m.duty, to_char(m.birth_date, 'YYYY-MM-DD') AS birth, u.login_id FROM membership m LEFT JOIN app_user u ON u.id = m.user_id AND u.deleted_at IS NULL WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.role <> '시스템관리자' ORDER BY m.name, m.id`, // 문구-예외: 저장 값
     [orgId],
   )).rows.map((r) => ({ id: Number(r.id), text: { name: r.name ?? '', duty: r.duty ?? '', birth: r.birth ?? '', loginId: r.login_id ?? '' }, set: { name: r.name, duty: r.duty, birth_date: r.birth } })),
   insert: async (db, orgId, set) => Number((await db.query(
