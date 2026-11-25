@@ -165,16 +165,20 @@ export function schoolRouter(pool) {
   r.post('/quick-start', manage, guard(async (req, res) => {
     const gk = z.string().regex(/^[1-6]$/);
     const p = z.object({
-      classes: z.record(gk, z.number().int().min(0).max(CEIL.classNo)),
+      classes: z.record(gk, z.number().int().min(0).max(CEIL.classNo)).optional(),
       periods: z.record(gk, z.number().int().min(1).max(CEIL.periods)).optional(),
     }).safeParse(req.body);
-    if (!p.success || !Object.values(p.data.classes).some((n) => n > 0)) return bad(res);
+    if (!p.success) return bad(res);
+    const boxed = !!p.data.classes; // 상자 값을 보냈나 — 안 보냈으면 학교 기본의 반·교시로 빈 시안만 만든다(T-1305)
+    if (boxed && !Object.values(p.data.classes).some((n) => n > 0)) return bad(res);
     const t = await currentTerm(pool, req.orgId);
-    if ((await pool.query(`SELECT 1 FROM classroom WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL LIMIT 1`, [req.orgId, t.id])).rows[0]) {
+    const hasClasses = !!(await pool.query(`SELECT 1 FROM classroom WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL LIMIT 1`, [req.orgId, t.id])).rows[0];
+    if (!boxed && !hasClasses) return bad(res);
+    if (boxed && hasClasses) {
       return res.status(409).json({ error: '이미 학급이 있습니다. 빠른 시작은 빈 학교에서만 쓸 수 있습니다.', exists: true });
     }
     await ensureDefaultSubjects(pool, req.orgId);
-    const grades = Object.entries(p.data.classes).filter(([, n]) => n > 0).map(([g, n]) => [Number(g), n]);
+    const grades = Object.entries(p.data.classes ?? {}).filter(([, n]) => n > 0).map(([g, n]) => [Number(g), n]);
     const cfg = (await pool.query(`SELECT period_config FROM org WHERE id = $1`, [req.orgId])).rows[0]?.period_config ?? {};
     const pc = { ...cfg, grades: { ...(cfg.grades ?? {}) } };
     for (const [g] of grades) pc.grades[g] = { ...(pc.grades[g] ?? {}), periods: pc.grades[g]?.periods ?? p.data.periods?.[g] ?? (g <= 2 ? 5 : 6) }; // 학교에 저장된 기본이 먼저 — 있는 값은 안 덮는다

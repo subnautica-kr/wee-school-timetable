@@ -5,3 +5,5 @@ export function quickPeriods(cfg) {
   for (const g of Object.keys(out)) { const n = Number(cfg?.grades?.[g]?.periods); if (Number.isInteger(n) && n >= 1 && n <= 10) out[g] = n; }
   return out;
 }
+// 학교 기본(이번 학기 반 목록 GET /classrooms)에 반이 하나라도 있나 — 있으면 빠른 시작은 상자 없이 단추 하나
+export const hasSchoolClasses = (list) => Array.isArray(list) && list.length > 0;

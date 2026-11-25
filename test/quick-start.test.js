@@ -100,4 +100,17 @@ test('빠른 시작 경로', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, asy
     assert.equal(pc.grades[1].periods, 5);
     assert.equal(pc.grades[4].periods, 6);
   });
+  // T-1305: 학교 기본에 반이 있으면 상자 값 없이 불러도 그 반·교시로 빈 시안이 선다 · 반이 없으면 400 · 상자 값이 있으면 기존대로 409
+  await t.test('상자 값 없이 부르면 학교 기본의 반·교시로 빈 시안', async () => {
+    const { call, o } = await qsOrg('qc', {});
+    assert.equal((await call('POST', `/api/orgs/${o}/quick-start`, {})).status, 400); // 반도 상자도 없음
+    assert.equal((await call('POST', `/api/orgs/${o}/classrooms/bulk`, { grade: 1, count: 2 })).status < 300, true);
+    await pool.query(`UPDATE org SET period_config = $2 WHERE id = $1`, [o, JSON.stringify({ grades: { 1: { periods: 4 } } })]);
+    const r = await call('POST', `/api/orgs/${o}/quick-start`, {});
+    assert.equal(r.status, 201);
+    const d = (await call('GET', `/api/orgs/${o}/timetables/${r.json.timetable.id}`)).json;
+    assert.equal(d.classrooms.length, 2);
+    assert.equal(d.periods.grades[1].periods, 4);
+    assert.equal((await call('POST', `/api/orgs/${o}/quick-start`, { classes: { 1: 1 } })).status, 409); // 상자 값이 있으면 막힘
+  });
 });

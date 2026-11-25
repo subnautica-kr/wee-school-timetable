@@ -8,7 +8,7 @@ import { todayStr } from '../today.js';
 import { featureOn } from '../features.js';
 import { EmptyHint, Finger } from './Guide.jsx';
 import T from '../T.jsx';
-import { quickPeriods } from './quickDefaults.js';
+import { quickPeriods, hasSchoolClasses } from './quickDefaults.js';
 import { ClearTermButton } from '../settings/DangerZone.jsx';
 import { emptyCount, confirmText } from '../../../shared/ttConfirm.js';
 import { outsideCells, periodsMax, periodsOn } from '../../../shared/periods.js';
@@ -26,6 +26,8 @@ function QuickStart({ P, onDone }) {
   const [cls, setCls] = useState({ 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1 });
   const [per, setPer] = useState(quickPeriods(null));
   const [fromSchool, setFromSchool] = useState(false);
+  const [schoolClasses, setSchoolClasses] = useState(null); // null=읽는 중 · true/false=학교 기본에 반이 있나(있으면 상자 없이 단추 하나)
+  useEffect(() => { let off = false; api('GET', `${P}/classrooms`).then((l) => { if (!off) setSchoolClasses(hasSchoolClasses(l)); }).catch(() => { if (!off) setSchoolClasses(false); }); return () => { off = true; }; }, [P]);
   useEffect(() => { let off = false; api('GET', `${P}/school/periods`).then((c) => { if (!off && c?.grades) { setPer(quickPeriods(c)); setFromSchool(true); } }).catch(() => {}); return () => { off = true; }; }, [P]); // 학교 값이 없거나 못 읽으면 고정값 그대로
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -34,7 +36,21 @@ function QuickStart({ P, onDone }) {
     setBusy(true); setError(''); setBlocked(false);
     try { await api('POST', `${P}/quick-start`, { classes: cls, periods: per }); onDone(); } catch (e) { setError(e.message); setBlocked(!!e.body?.exists); setBusy(false); }
   };
+  const goSchool = async () => {
+    setBusy(true); setError('');
+    try { await api('POST', `${P}/quick-start`, {}); onDone(); } catch (e) { setError(e.message); setBusy(false); }
+  };
   const total = GRADES.reduce((a, g) => a + (cls[g] || 0), 0);
+  if (schoolClasses === null) return null;
+  if (schoolClasses) return (
+    <Card withBorder maw={420}>
+      <Stack gap="xs">
+        {error && <Alert color="red">{error}</Alert>}
+        <Text size="sm"><T k="grid.quick_school.only" /></Text>
+        <Button disabled={busy} onClick={goSchool} data-testid="quick-school-btn"><T k="grid.quick_school.button" /></Button>
+      </Stack>
+    </Card>
+  );
   return (
     <Card withBorder maw={420}>
       <Stack gap="xs">
