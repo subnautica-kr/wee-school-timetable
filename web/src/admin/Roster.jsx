@@ -5,6 +5,8 @@ import { downloadTemp } from './csv.js';
 import { t } from '../T.jsx';
 import { 값이름 } from '../../../shared/text/index.js';
 import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
+import { LinkModal, UnlinkedBox } from './AccountLink.jsx';
+import { accountColumnShown } from './linkView.js';
 import { dutyOptions, roleLabel, useOrgConfig } from '../orgConfig.js';
 
 const ROLES = ['기관관리자', '교직원', '보기만'];
@@ -26,11 +28,17 @@ export default function Roster({ orgId }) {
   const [result, setResult] = useState(null);
 
   const [classes, setClasses] = useState([]);
+  const [unlinked, setUnlinked] = useState([]); // 「연결 안 된 계정」 묶음
+  const [linkLine, setLinkLine] = useState(null); // 「계정 연결」 창 대상 줄
+  const [unlinkAsk, setUnlinkAsk] = useState(null); // 「연결 해제」 확인 대상 줄
+  const [moved, setMoved] = useState(null); // 줄 지우기로 계정이 묶음에 간 사람 이름
   const load = () => {
+    api('GET', `${base}/unlinked`).then(setUnlinked).catch(() => setUnlinked([]));
     api('GET', `/orgs/${orgId}/classrooms`).then(setClasses).catch(() => setClasses([])); // 반 열·담임 빠짐 상자용 — 못 받아도 명단은 그린다
     return api('GET', base).then(setRows).catch((e) => setErr(e.message));
   };
   useEffect(() => { load(); }, [orgId]);
+  const showAccount = accountColumnShown(rows);
   const hv = homeroomView(rows, classes);
   const noClassText = hv.noClass.join(', ');
   const noTeacherText = hv.noTeacher.join(', ');
@@ -81,6 +89,10 @@ export default function Roster({ orgId }) {
     setBulkRes({ changed: r.changed, failed: (r.results || []).filter((x) => !x.ok) });
     setSel(new Set()); setBulkStatus(null);
   });
+  const doUnlink = () => run(async () => {
+    await api('DELETE', `${base}/${unlinkAsk.id}/link`);
+    setUnlinkAsk(null);
+  });
   const post = (m, what) => run(async () => {
     const r = await api('POST', `${base}/${m.id}/${what}`);
     if (r.temp) setTemp({ name: m.name, loginId: r.loginId, temp: r.temp });
@@ -114,9 +126,12 @@ export default function Roster({ orgId }) {
 
   const actions = (m) => (
     <Group gap="xs" wrap="nowrap">
+      {m.hasAccount
+        ? <Button size="xs" variant="default" disabled={busy} onClick={() => setUnlinkAsk(m)}>{t('roster.unlink.menu')}</Button>
+        : <Button size="xs" variant="default" disabled={busy} onClick={() => setLinkLine(m)}>{t('roster.link.menu')}</Button>}
       {m.hasAccount && <Button size="xs" variant="default" disabled={busy} onClick={() => post(m, 'reset-password')}>{t('roster.row.reset')}</Button>}
       <Button size="xs" variant="subtle" color="red" disabled={busy} onClick={() => del(cascadeOpts(`/orgs/${orgId}`, 'membership', m.id, m.name, `${base}/${m.id}`, {
-        title: t('roster.del.title', { 이름: m.name }), yes: t('roster.del.yes'), onDone: load,
+        run: async () => { const r = await api('DELETE', `${base}/${m.id}`); setMoved(r.unlinked ? m.name : null); }, title: t('roster.del.title', { 이름: m.name }), yes: t('roster.del.yes'), onDone: load,
         lead: t('roster.del.lead') + (hv.byMember[m.id] ? ` ${t('roster.del.has_duty')}` : '') }))}>{t('roster.row.delete')}</Button>
     </Group>
   );
@@ -133,6 +148,7 @@ export default function Roster({ orgId }) {
       <Title order={4}>{t('roster.head.title', { 수: rows.length })}</Title>
       {err && <Alert color="red">{err}</Alert>}
       {note && <Alert color="yellow" withCloseButton onClose={() => setNote(null)}>{t('roster.bulk.vacated', note)}</Alert>}
+      {moved && <Alert color="blue" withCloseButton onClose={() => setMoved(null)}>{t('roster.moved.unlinked', { 이름: moved })}</Alert>}
       {bulkRes && (
         <Alert color={bulkRes.failed.length ? 'orange' : 'green'} withCloseButton onClose={() => setBulkRes(null)}>
           <Text size="sm">{t('roster.bulk.done', { 수: bulkRes.changed })}{bulkRes.failed.length > 0 && ` · ${t('roster.bulk.failed', { 수: bulkRes.failed.length })}`}</Text>
@@ -177,21 +193,21 @@ export default function Roster({ orgId }) {
               <Group gap="xs" wrap="nowrap">{pickBox(m)}<Text fw={600}>{m.name}{m.duty && <Text span size="xs" c="dimmed"> {m.duty}</Text>}</Text></Group>
               <div>{stateBadge(m)}</div>
             </Group>
-            <Text size="xs" c="dimmed" mb={4}>{t('roster.col.login_id')} {loginCell(m)}{m.birthDate && ` · ${m.birthDate}`} · {t('roster.col.classes')} {hv.byMember[m.id] || '-'} · {t('roster.col.last')} {m.lastLogin ? new Date(m.lastLogin).toLocaleString('ko-KR') : '-'}</Text>
+            <Text size="xs" c="dimmed" mb={4}>{showAccount && `${t('roster.account.col')} ${loginCell(m)} · `}{m.birthDate && `${m.birthDate} · `}{t('roster.col.classes')} {hv.byMember[m.id] || '-'} · {t('roster.col.last')} {m.lastLogin ? new Date(m.lastLogin).toLocaleString('ko-KR') : '-'}</Text>
             <Stack gap={6}>{roleSel(m)}{statusSel(m)}<Group gap="xs">{actions(m)}</Group></Stack>
           </Paper>
         ))}
       </Stack>
       <Table.ScrollContainer minWidth={700} visibleFrom="sm">
         <Table striped>
-          <Table.Thead><Table.Tr><Table.Th w={36}><Checkbox aria-label={t('roster.bulk.pick_all')} checked={rows.length > 0 && sel.size === rows.length} indeterminate={sel.size > 0 && sel.size < rows.length} onChange={() => setSel(sel.size === rows.length ? new Set() : new Set(rows.map((m) => m.id)))} /></Table.Th><Table.Th>{t('roster.col.name')}</Table.Th><Table.Th>{t('roster.col.birth')}</Table.Th><Table.Th>{t('roster.col.login_id')}</Table.Th><Table.Th>{t('roster.col.classes')}</Table.Th><Table.Th>{t('roster.col.role')}</Table.Th><Table.Th>{t('roster.col.status')}</Table.Th><Table.Th /><Table.Th>{t('roster.col.last')}</Table.Th><Table.Th /></Table.Tr></Table.Thead>
+          <Table.Thead><Table.Tr><Table.Th w={36}><Checkbox aria-label={t('roster.bulk.pick_all')} checked={rows.length > 0 && sel.size === rows.length} indeterminate={sel.size > 0 && sel.size < rows.length} onChange={() => setSel(sel.size === rows.length ? new Set() : new Set(rows.map((m) => m.id)))} /></Table.Th><Table.Th>{t('roster.col.name')}</Table.Th><Table.Th>{t('roster.col.birth')}</Table.Th>{showAccount && <Table.Th>{t('roster.account.col')}</Table.Th>}<Table.Th>{t('roster.col.classes')}</Table.Th><Table.Th>{t('roster.col.role')}</Table.Th><Table.Th>{t('roster.col.status')}</Table.Th><Table.Th /><Table.Th>{t('roster.col.last')}</Table.Th><Table.Th /></Table.Tr></Table.Thead>
           <Table.Tbody>
             {rows.map((m) => (
               <Table.Tr key={m.id} opacity={off(m) ? 0.5 : 1}>
                 <Table.Td>{pickBox(m)}</Table.Td>
                 <Table.Td>{m.name}{m.duty && <Text span size="xs" c="dimmed"> {m.duty}</Text>}</Table.Td>
                 <Table.Td>{m.birthDate || t('roster.col.no_account')}</Table.Td>
-                <Table.Td>{loginCell(m)}</Table.Td>
+                {showAccount && <Table.Td>{loginCell(m)}</Table.Td>}
                 <Table.Td>{hv.byMember[m.id] || '-'}</Table.Td>
                 <Table.Td>{roleSel(m)}</Table.Td>
                 <Table.Td>{statusSel(m)}</Table.Td>
@@ -203,6 +219,20 @@ export default function Roster({ orgId }) {
           </Table.Tbody>
         </Table>
       </Table.ScrollContainer>
+
+      <UnlinkedBox base={base} items={unlinked} rows={rows} onChanged={load} onError={setErr} />
+      {linkLine && <LinkModal line={linkLine} base={base} onClose={() => setLinkLine(null)} onChanged={load} onTemp={setTemp} onError={setErr} />}
+      <Modal opened={!!unlinkAsk} onClose={() => setUnlinkAsk(null)} title={t('roster.unlink.title', { 이름: unlinkAsk?.name ?? '' })} centered>
+        {unlinkAsk && (
+          <Stack>
+            <Text size="sm">{t('roster.unlink.lead', { 이름: unlinkAsk.name })}</Text>
+            <Group justify="flex-end">
+              <Button variant="default" disabled={busy} onClick={() => setUnlinkAsk(null)}>{t('roster.unlink.no')}</Button>
+              <Button color="red" loading={busy} onClick={doUnlink}>{t('roster.unlink.yes')}</Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
 
       <Modal opened={!!temp} onClose={() => setTemp(null)} title={t('roster.temp.title')}>
         <Stack>
