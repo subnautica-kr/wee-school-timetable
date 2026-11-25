@@ -6,6 +6,7 @@ import { createAccount, resetPassword, ID_RE } from '../accounts.js';
 import { auditPage } from './audit-log.js';
 import { audit, killSessions, killOrgSessions } from '../audit.js';
 import { inTx, httpError } from '../cascade.js';
+import { adminAccounts } from '../adminAccounts.js';
 
 // 시스템 관리자(상위 기관) — 기관 관리 넷뿐: 기관 등록 · 기관 상태 · 첫 관리자 만들기 · 관리자 비밀번호 초기화.
 // 기관 안 데이터(시간표·보결·근태·명단)는 못 본다. 명단·시간표 경로는 하나도 없고,
@@ -41,6 +42,7 @@ export function adminRouter(pool) {
   r.use(requireSystemAction('org.manage'));
   const who = (req) => ({ userId: req.session.userId, orgId: req.session.orgId });
   const nf = (res) => res.status(404).json({ error: '없습니다' });
+  const acc = adminAccounts(pool); // T-1326 총괄관리자 계정 화면
 
   // 감사 로그 — 기관을 골라서(audit-log.js 와 같은 조회)
   r.get('/orgs/:id/audit', async (req, res, next) => {
@@ -278,5 +280,14 @@ export function adminRouter(pool) {
       res.json({ ok: true });
     } catch (e) { fail(res, next, e); }
   });
+  // 총괄관리자 계정 화면(T-1326) — 소속 없는 계정 · 기관 관리자 없는 학교 · 가입 감시와 캡차 스위치 · 계정 잠금 · 연락처
+  r.get('/accounts/unlinked', acc.unlinked);
+  r.get('/schools/no-admin', acc.noAdminSchools);
+  r.get('/signup-watch', acc.watch);
+  r.put('/signup-captcha', acc.setCaptcha);
+  r.post('/users/:uid/lock', acc.lock(true));
+  r.post('/users/:uid/unlock', acc.lock(false));
+  r.get('/contact', acc.getContact);
+  r.put('/contact', acc.setContact);
   return r;
 }
