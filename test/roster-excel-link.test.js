@@ -35,6 +35,7 @@ test('명단 엑셀 아이디 열: 네 갈래 · 빈 칸 유지 · 되돌리기'
       assert.equal(pv.status, 200, JSON.stringify(pv.json));
       assert.deepEqual(pv.json.links.map((l) => l.kind), ['linked', 'pending', 'check', 'missing']);
       assert.ok(pv.json.links.every((l) => l.msg && l.userId === undefined));
+      assert.deepEqual(pv.json.links.map((l) => l.group), ['linked', 'pending', 'check', 'check']); // 일괄 연결과 같은 셋(계정 없음은 확인 필요)
       assert.equal((await one(`SELECT count(*)::int AS n FROM membership WHERE org_id = $1 AND name = '연결샘'`, [orgId])).n, 0);
     });
 
