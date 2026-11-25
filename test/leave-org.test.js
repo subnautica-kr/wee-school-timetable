@@ -71,14 +71,26 @@ test('나가기: 교직원 → 줄의 계정 칸 빔 · 휴면 · 관리자 소�
   assert.equal((await m.call('POST', '/api/me/leave')).status, 401);
 });
 
-test('나가기: 마지막 기관 관리자는 409 · 관리자가 둘이면 나간다', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {
+test('나가기: 마지막 기관 관리자는 경고 409 · 관리자가 둘이면 나간다', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {
   const f = await boot(t);
   const A = await f.mkOrg('나학교');
   const a1 = await f.member(A, '기관관리자');
   const r = await a1.call('POST', '/api/me/leave');
   assert.equal(r.status, 409);
-  assert.equal(r.json.code, 'roster.err.leave_last_admin');
+  assert.equal(r.json.code, 'roster.err.last_admin_warn');
+  assert.equal(r.json.needConfirm, true);
+  assert.equal(r.json.lastAdmin, true);
   assert.ok((await f.pool.query(`SELECT user_id FROM membership WHERE id = $1`, [a1.mid])).rows[0].user_id);
   await f.member(A, '기관관리자');
   assert.equal((await a1.call('POST', '/api/me/leave')).status, 200);
+});
+
+test('나가기: 마지막 기관 관리자도 force 로 다시 하면 나간다(경고 뒤 허용)', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, async (t) => {
+  const f = await boot(t);
+  const A = await f.mkOrg('다학교');
+  const a1 = await f.member(A, '기관관리자');
+  assert.equal((await a1.call('POST', '/api/me/leave')).status, 409);
+  const r = await a1.call('POST', '/api/me/leave', { force: true });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal((await f.pool.query(`SELECT user_id FROM membership WHERE id = $1`, [a1.mid])).rows[0].user_id, null);
 });

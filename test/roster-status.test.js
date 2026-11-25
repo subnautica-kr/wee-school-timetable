@@ -66,7 +66,7 @@ test('명단 서버: 계정 없는 줄 · 재직 상태 · 엑셀 아이디', { 
       assert.equal((await one(`SELECT dormant_reason FROM app_user WHERE id = $1`, [linkedUser])).dormant_reason, 'retired');
     });
 
-    await tt.test('내 줄 퇴직 409 · 마지막 기관 관리자 퇴직 409', async () => {
+    await tt.test('내 줄 퇴직 409 · 마지막 기관 관리자 퇴직은 경고(409 needConfirm) 뒤 허용', async () => {
       const r = await call('PATCH', `${P}/roster/${adminMid}`, { status: MEMBER_STATUS.TRANSFERRED }, { expect: 409 });
       assert.equal(r.json.code, 'roster.err.self_status');
       const u2 = await user('adm2', '둘째관리');
@@ -75,7 +75,8 @@ test('명단 서버: 계정 없는 줄 · 재직 상태 · 엑셀 아이디', { 
       await pool.query(`UPDATE membership SET role = $2 WHERE id = $1`, [adminMid, ROLE.STAFF]);
       const last = await call('PATCH', `${P}/roster/${m2}`, { status: MEMBER_STATUS.RETIRED }, { expect: 409 });
       await pool.query(`UPDATE membership SET role = $2 WHERE id = $1`, [adminMid, ROLE.ORG_ADMIN]);
-      assert.equal(last.json.code, 'roster.err.last_admin');
+      assert.equal(last.json.code, 'roster.err.last_admin_warn');
+      assert.equal(last.json.needConfirm, true);
       const ok = await call('PATCH', `${P}/roster/${m2}`, { status: MEMBER_STATUS.RETIRED });
       assert.equal(ok.status, 200);
     });

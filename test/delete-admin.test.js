@@ -61,6 +61,8 @@ test('2 계정 삭제: 확인 글자 · 자기 자신 409 · 마지막 관리자
   const last = await del(users.adminA, users.adminA.loginId); // A 의 하나뿐인 관리자
   assert.equal(last.status, 409);
   assert.ok(last.json.error.includes(`${f.tag}-A`));
+  assert.equal(last.json.needConfirm, true);
+  assert.equal(last.json.lastAdmin, true);
   assert.equal(await isLive(pool, 'app_user', users.adminA.uid), true);
 
   assert.equal((await del(users.staffA, '틀린 아이디')).status, 400);
@@ -96,7 +98,8 @@ test('3 기관 관리자 떼기: 역할만 교직원으로 · 마지막 관리�
   assert.equal(await isLive(pool, 'membership', users.dual.midB), true);
   const last = await demote(users.adminB);
   assert.equal(last.status, 409);
-  assert.match(last.json.error, /마지막 관리자/);
+  assert.equal(last.json.needConfirm, true);
+  assert.match(last.json.error, /기관 관리자가 한 명도 없게/);
   assert.equal((await demote(users.dual)).status, 404); // 이미 교직원
   assert.ok(ACTION_LABEL['admin.demote']);
   assert.equal((await one(pool, `SELECT count(*)::int AS n FROM audit_log WHERE action = 'admin.demote'`)).n >= 1, true);
@@ -117,4 +120,25 @@ test('4 권한: 기관 관리자·교직원은 세 동작 모두 거부', { skip
   }
   assert.equal(await isLive(pool, 'app_user', users.staffA.uid), true);
   assert.equal(await isLive(pool, 'org', orgB), true);
+});
+
+test('5 마지막 기관 관리자도 경고 뒤 force 로 지우기·떼기 된다 · 계정 없는 관리자 줄은 안 센다', { skip }, async (t) => {
+  const f = await setup(t);
+  const { pool, orgA, orgB, users } = f;
+  const c = await f.as('sys');
+  // A 에 계정 없는 관리자 줄을 하나 더 둬도 마지막 판정은 그대로(안 센다)
+  await pool.query(`INSERT INTO membership (org_id, role, name) VALUES ($1, '기관관리자', '빈줄관리자')`, [orgA]);
+  const warn = await c.call('DELETE', `/api/admin/users/${users.adminA.uid}`, { confirm: users.adminA.loginId });
+  assert.equal(warn.status, 409);
+  assert.equal(warn.json.needConfirm, true);
+  assert.equal(await isLive(pool, 'app_user', users.adminA.uid), true);
+  const ok = await c.call('DELETE', `/api/admin/users/${users.adminA.uid}`, { confirm: users.adminA.loginId, force: true });
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  assert.equal(await isLive(pool, 'app_user', users.adminA.uid), false);
+  // 떼기: B 관리자 둘(adminB·dual) → dual 은 그냥, adminB(마지막)는 경고 뒤 force
+  const demote = (u, body) => c.call('POST', `/api/admin/orgs/${orgB}/admins/${u.uid}/demote`, body ?? {});
+  assert.equal((await demote(users.dual)).status, 200);
+  assert.equal((await demote(users.adminB)).status, 409);
+  assert.equal((await demote(users.adminB, { force: true })).status, 200);
+  assert.equal((await one(pool, `SELECT role FROM membership WHERE id = $1`, [users.adminB.mid])).role, '교직원');
 });
