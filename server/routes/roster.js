@@ -681,6 +681,8 @@ export function rosterRouter(pool) {
   //  ② 줄마다 kind: linked(연결) · pending(다른 학교 재직 → 전출 요청 · 승인 대기) · check(이름·생년월일 다름 → 하나씩 봄)
   //                 missing(계정 없음 → 줄만) · taken(줄에 다른 계정) · in_org(이 학교 다른 줄에 연결됨) — 뒤 넷은 반영 안 함
   //  ③ 되돌리기는 줄 값만(아이디 열은 dbcols 가 없어 되돌리기 기록에 안 든다)
+  // 결과 셋(일괄 연결과 같은 group 칸): linked · pending · check — 계획 kind 중 linked·pending 말고는 전부 확인 필요
+  const BULK_GROUP = { linked: 'linked', pending: 'pending' };
   const linkPlan = async (db, orgId, plans) => {
     const plan = plans.find((p) => p.spec.name === rosterSpec.name);
     const rows = plan && plans.book[plan.sheet];
@@ -700,7 +702,7 @@ export function rosterRouter(pool) {
       if (cur?.user_id != null && String(cur.login_id ?? '').toLowerCase() === loginId.toLowerCase()) continue; // 이미 그 계정
       const name = String(r[ni] ?? '').trim() || cur?.name;
       const birth = String(r[bi] ?? '').trim() || cur?.birth_date || null;
-      const push = (kind, extra = {}) => out.push({ line, id, loginId, kind, msg: t(`roster.excel_link.${kind}`), ...extra });
+      const push = (kind, extra = {}) => out.push({ line, id, loginId, kind, group: BULK_GROUP[kind] ?? 'check', msg: t(`roster.excel_link.${kind}`), ...extra });
       if (cur?.user_id != null) { push('taken'); continue; }
       const u = (await db.query(`SELECT id, name, birth_date FROM app_user WHERE lower(login_id) = lower($1) AND deleted_at IS NULL`, [loginId])).rows[0];
       if (!u) { push('missing'); continue; }
@@ -907,6 +909,72 @@ export function rosterRouter(pool) {
       await audit(pool, { ...me(req), action: 'roster.import', table: 'membership', after: { made, failed: results.length - made } });
       const classMissing = results.filter((x) => x.classroom && !x.classroom.found).map((x) => ({ line: x.line, name: x.name, classroom: x.classroom.text }));
       res.json(withWarnings({ results, made, failed: results.length - made, classMissing }, warnings));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+
+  // ── 일괄 연결(T-1322b②-D) — 계정 여럿을 명단 줄에 한 번에 잇는다. 줄마다 거래를 따로 걸어 한 줄이 막혀도 나머지는 간다.
+  //   입력 { rows:[{ membershipId?|name, loginId }], concurrent? } → { results:[{ index, membershipId, name, loginId, group, code?, msg, ... }], counts:{ linked, pending, check } }
+  //   group: linked(연결됨) · pending(다른 학교 재직 → 전출 요청 보냄, 승인 대기 · requestId·expiresAt) · check(확인 필요 — code 와 한 줄 msg)
+  //   보내는 학교가 자동 승인을 켜 둔 전출 요청은 그 자리에서 연결되어 group linked + autoApproved. 경고 판정은 「아이디로 연결」과 같은 matchPerson.
+  const bulkRow = z.object({
+    membershipId: z.coerce.number().int().positive().optional().catch(undefined),
+    name: z.string().trim().max(50).optional().catch(undefined),
+    loginId: z.string().trim().max(200).optional().catch(undefined),
+  });
+  const bulkLinkIn = z.object({ rows: z.array(z.unknown()).min(1).max(MAX_ROWS), concurrent: z.boolean().optional() });
+  const bulkOne = async (c, orgId, by, raw, concurrent) => {
+    const row = bulkRow.parse(raw ?? {});
+    const base = { membershipId: row.membershipId ?? null, name: row.name ?? '', loginId: row.loginId ?? '' };
+    const check = (code, extra = {}) => ({ ...base, group: 'check', code, msg: t(`roster.bulk_link.${code}`), ...extra });
+    if (!ID_RE.test(base.loginId)) return check('bad_input');
+    let ln;
+    if (row.membershipId) ln = await lineFor(row.membershipId, orgId, c);
+    else if (base.name) {
+      const cand = (await c.query(
+        `SELECT id, user_id, role, name, birth_date FROM membership
+          WHERE org_id = $1 AND deleted_at IS NULL AND role <> $2 AND user_id IS NULL AND status = ANY($3::text[])`, [orgId, ROLE.SYSADMIN, MEMBER_STATUS_LOGIN])).rows.filter((x) => sameName(x.name, base.name));
+      if (cand.length > 1) return check('line_ambiguous');
+      ln = cand[0];
+    } else return check('bad_input');
+    if (!ln) return check('line_not_found');
+    base.membershipId = Number(ln.id);
+    base.name = ln.name ?? base.name;
+    const user = (await c.query(`SELECT id, login_id, name FROM app_user WHERE lower(login_id) = lower($1) AND deleted_at IS NULL`, [base.loginId])).rows[0];
+    if (!user) return check('account_not_found');
+    if (ln.user_id != null) return check(Number(ln.user_id) === Number(user.id) ? 'already_linked' : 'line_taken');
+    if ((await c.query(`SELECT 1 FROM membership WHERE user_id = $1 AND org_id = $2 AND deleted_at IS NULL`, [user.id, orgId])).rows[0]) return check('account_in_org');
+    const m = await matchPerson(c, { name: ln.name, birthDate: ln.birth_date, userId: user.id });
+    if (m.check?.name === false) return check('name');
+    if (m.check?.birth === false) return check('birth');
+    const others = m.candidates.filter((x) => x.userId !== Number(user.id));
+    if (others.length) return check('other', { accounts: others.map((x) => ({ loginId: x.loginId, linkedCount: x.linkedCount })) });
+    const home = await homeOrgOf(c, user.id, orgId);
+    if (home != null && !concurrent) {
+      const out = await requestTransfer(c, { fromOrg: home, toOrg: orgId, userId: user.id, toMembershipId: ln.id, byUserId: by });
+      if (out.error) return { error: out.error, check: check('transfer_failed') };
+      if (out.autoApproved) return { ...base, group: 'linked', autoApproved: true, msg: t('roster.bulk_link.linked') };
+      return { ...base, group: 'pending', requestId: out.requestId, expiresAt: out.expiresAt, msg: t('roster.bulk_link.pending') };
+    }
+    const l = await linkAccount(c, { membershipId: ln.id, userId: user.id, byUserId: by, concurrent: home != null });
+    if (l.error) return { error: l.error, check: check('link_failed', { reason: l.error }) };
+    return { ...base, group: 'linked', isConcurrent: !!l.isConcurrent, msg: t('roster.bulk_link.linked') };
+  };
+  r.post('/bulk-link', async (req, res, next) => {
+    try {
+      const p = bulkLinkIn.safeParse(req.body);
+      if (!p.success) return fail(res, 400, 'roster.err.bad_input');
+      const results = [];
+      for (const [index, raw] of p.data.rows.entries()) {
+        const out = await withTx(pool, (c) => bulkOne(c, req.orgId, req.session.userId, raw, !!p.data.concurrent));
+        results.push({ index, ...(out.check ?? out) });
+      }
+      const counts = { linked: 0, pending: 0, check: 0 };
+      for (const x of results) counts[x.group]++;
+      await audit(pool, { ...me(req), action: 'roster.bulk-link', table: 'membership', after: { ...counts, concurrent: !!p.data.concurrent } });
+      res.json({ results, counts });
     } catch (e) {
       next(e);
     }
