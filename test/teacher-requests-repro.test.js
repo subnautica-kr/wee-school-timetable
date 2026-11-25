@@ -85,7 +85,7 @@ test('6번(T-1206): 시수표·칸에 둘째 교사를 담을 선택 열이 있�
 test('10번(T-1204): 시수표 올리기 길이 있다 — 양식 · 미리보기 · 반영(기존 줄 고치기 길 PATCH 그대로)', () => {
   const s = src('server/routes/loads.js');
   const verbs = [...s.matchAll(/r\.(get|post|patch|delete|put)\('([^']+)'/g)].map((m) => `${m[1]} ${m[2]}`);
-  assert.deepEqual(verbs, ['get /loads', 'get /loads/effective', 'get /loads/template', 'post /loads/preview', 'post /loads/apply', 'post /loads', 'patch /loads/:id', 'delete /loads/:id']);
+  assert.deepEqual(verbs, ['get /loads', 'get /loads/vacant', 'get /loads/effective', 'get /loads/template', 'post /loads/preview', 'post /loads/apply', 'post /loads', 'patch /loads/:id', 'delete /loads/:id']);
 });
 
 test('8번(T-1202): 점심 자리(lunchAfter)만 넣어도 생성 재료 L 이 채워지고 급식지도 제외·경고가 돈다', () => {
