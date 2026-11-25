@@ -125,6 +125,7 @@ export const rosterSpec = {
   )).rows[0].id),
 };
 
+export const GRID_CELL_COLS = ['subject_id', 'membership_id', 'second_membership_id', 'special_room_id'];
 // 되돌리기 허용 집합의 출처 — 명단·시수표·고정금지(앞 둘은 loadsImport.js)
 export { gradeSpec, roomsSpec };
 export const EXCEL_SPECS = [rosterSpec, loadsSpec, pinsSpec, gradeSpec, roomsSpec];
@@ -132,6 +133,7 @@ export const EXCEL_SPECS = [rosterSpec, loadsSpec, pinsSpec, gradeSpec, roomsSpe
 const allowedCols = () => {
   const m = new Map(EXCEL_SPECS.map((s) => [s.table, new Set([...s.cols.flatMap((c) => c.dbcols), 'deleted_at'])]));
   for (const sp of EXCEL_SPECS) for (const [tb, cols] of Object.entries(sp.undo ?? {})) m.set(tb, new Set([...(m.get(tb) ?? ['deleted_at']), ...cols]));
+  m.set('cell', new Set([...GRID_CELL_COLS, 'deleted_at'])); // 시간표 격자 엑셀(T-1304b, gridExcel.js)이 남긴 칸 기록
   return m;
 };
 

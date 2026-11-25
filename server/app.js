@@ -19,6 +19,7 @@ import { schoolSetupRouter } from './routes/schoolSetup.js';
 import { pinsRouter } from './routes/pins.js';
 import { rulesRouter } from './routes/rules.js';
 import { timetablesRouter } from './routes/timetables.js';
+import { gridExcelRouter } from './routes/gridExcel.js';
 import { attendanceRouter } from './routes/attendance.js';
 import { softWeightsRouter } from './routes/soft-weights.js';
 import { substituteRouter } from './routes/substitute.js';
@@ -135,6 +136,7 @@ export function createApp(pool, opts = {}) {
   app.use('/api/orgs/:orgId', pinsRouter(pool));
   app.use('/api/orgs/:orgId', rulesRouter(pool));
   app.use('/api/orgs/:orgId', timetablesRouter(pool));
+  app.use('/api/orgs/:orgId', gridExcelRouter(pool));
   app.use('/api/orgs/:orgId', attendanceRouter(pool));
   app.use('/api/orgs/:orgId', softWeightsRouter(pool));
   app.use('/api/orgs/:orgId', substituteRouter(pool, opts));
