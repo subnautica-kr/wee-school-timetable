@@ -14,7 +14,8 @@ const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e
 export function accountNameHits(src) {
   const hits = [];
   for (const m of src.matchAll(/`[^`]*`/g)) {
-    const sql = m[0];
+    // NOT EXISTS (…) 안의 membership 은 「줄 없는 계정 찾기」 거름일 뿐 줄 이름을 대신 읽는 게 아니다 — 떼고 본다
+    const sql = m[0].replace(/NOT\s+EXISTS\s*\([^()]*\)/gi, '');
     if (!/\bmembership\b/.test(sql)) continue;
     for (const a of sql.matchAll(/\bapp_user\s+(?:AS\s+)?([a-z_][a-z0-9_]*)\b/gi)) {
       if (/^(WHERE|ON|SET|JOIN|LEFT|INNER)$/i.test(a[1])) continue;
@@ -28,6 +29,7 @@ test('정적: 명단 줄을 읽는 SQL 은 계정 이름(app_user 별칭.name)�
   // 검사기 검산: 옛 꼴은 잡고 새 꼴은 놓아준다
   assert.equal(accountNameHits('q(`SELECT m.id, u.name FROM membership m JOIN app_user u ON u.id = m.user_id`)').length, 1);
   assert.equal(accountNameHits('q(`SELECT m.id, m.name, u.login_id FROM membership m LEFT JOIN app_user u ON u.id = m.user_id`)').length, 0);
+  assert.equal(accountNameHits('q(`SELECT u.name FROM app_user u WHERE NOT EXISTS (SELECT 1 FROM membership m WHERE m.user_id = u.id)`)').length, 0);
   const files = [...walk('server'), ...walk('tools/migrate')].filter((f) => !f.endsWith(path.join('routes', 'auth.js')));
   assert.ok(files.length > 20);
   const bad = files.flatMap((f) => accountNameHits(fs.readFileSync(f, 'utf8')).map((h) => `${f}: ${h}`));

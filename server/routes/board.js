@@ -155,6 +155,12 @@ registerCleanup('board-attachment-90d', async (db, now) => {
   return r.rowCount;
 });
 
+// 오류 기록은 90일이 지나면 줄째 지운다(첨부와 같은 보관 기간 · 글에 붙은 기록 번호는 글 쪽 칸이 비워질 뿐 글은 남는다)
+registerCleanup('error-report-90d', async (db, now) => {
+  const r = await db.query(`DELETE FROM error_report WHERE created_at < $1::timestamptz - interval '90 days'`, [now]);
+  return r.rowCount;
+});
+
 const guard0 = (fn) => async (req, res, next) => { try { await fn(req, res); } catch (e) { next(e); } };
 
 const words = (s) => [...new Set(String(s).toLowerCase().split(/[^0-9a-z가-힣]+/).filter((x) => x.length >= 2))];
