@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const routesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server', 'routes');
 
 // 라우터가 붙는 자리(app.js · timetables.js 의 generateRouter)
-const MOUNT = { 'auth.js': '/api/auth', 'notifications.js': '/api/notifications', 'admin.js': '/api/admin', 'signup.js': '/api/signup', 'roster.js': '/api/orgs/:orgId/roster' };
+const MOUNT = { 'auth.js': '/api/auth', 'notifications.js': '/api/notifications', 'admin.js': '/api/admin', 'signup.js': '/api/signup', 'roster.js': '/api/orgs/:orgId/roster', 'board.js': '/api/board' };
 export function routeList() {
   const out = [];
   for (const file of fs.readdirSync(routesDir).filter((f) => f.endsWith('.js'))) {
@@ -33,6 +33,13 @@ const ORG_TABLES = ['delete_batch', 'attendance_allowed', 'attendance', 'month_c
 export async function cleanupOrgs(pool, orgIds, tag) {
   const named = (await pool.query(`SELECT id FROM org WHERE name LIKE $1`, [`${tag}-%`])).rows.map((r) => r.id);
   const ids = [...new Set([[orgIds].flat(), named].flat().filter((x) => x != null).map(String))];
+  // 도움·요청 글(T-1324a) — 글·답글·소식(총괄관리자 소식은 기관 칸이 비어 글 링크로 찾는다)
+  const posts = (await pool.query(`SELECT id FROM board_post WHERE org_id = ANY($1::bigint[])`, [ids])).rows.map((r) => r.id);
+  await pool.query(`DELETE FROM notification WHERE org_id = ANY($1::bigint[]) OR link = ANY($2::text[])`, [ids, posts.map((i) => `board:${i}`)]);
+  await pool.query(`DELETE FROM board_comment WHERE post_id = ANY($1::bigint[])`, [posts]);
+  await pool.query(`DELETE FROM board_attachment WHERE post_id = ANY($1::bigint[])`, [posts]);
+  await pool.query(`UPDATE board_post SET group_id = NULL WHERE id = ANY($1::bigint[])`, [posts]);
+  await pool.query(`DELETE FROM board_post WHERE id = ANY($1::bigint[])`, [posts]);
   for (const tb of ORG_TABLES) await pool.query(`DELETE FROM ${tb} WHERE org_id = ANY($1::bigint[])`, [ids]);
   await pool.query(`DELETE FROM audit_log WHERE table_name = 'org' AND (after->>'name') LIKE $1`, [`${tag}-%`]);
   await pool.query(`DELETE FROM session WHERE (sess->>'userId') IN (SELECT id::text FROM app_user WHERE login_id LIKE $1)`, [`${tag}-%`]);

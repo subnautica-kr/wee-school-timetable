@@ -30,6 +30,7 @@ test('기관 경계(전 경로): A 세션으로 B 기관·B 자원을 두드리�
     if (name === 'mid') return B.mem;
     if (name === 'termId') return B.term;
     if (name === 'uid') return f.users.adminB.uid;
+    if (name === 'step') return 'school';
     if (name === 'ym') return '2026-11';
     if (name === 'fmt') return 'pdf';
     if (name === 'step') return 'roster'; // T-1308 school-setup 단계 이름
@@ -66,6 +67,7 @@ test('기관 경계(전 경로): A 세션으로 B 기관·B 자원을 두드리�
   const fails = [];
   for (const r of list) {
     if (r.file === 'auth.js' || r.file === 'notifications.js' || r.file === 'signup.js') continue; // 로그인 전·학교 없는 세션 경로 · 본인 것만 보이는 알림 — 기관 자원 없음(알림은 notify.test.js 가 본다)
+    if (r.file === 'board.js') continue; // 기관 밖 경로(총괄관리자도 쓴다) — 경계는 test/board.test.js 가 공개 범위 표로 본다
     const s = sub(r);
     const body = BODY[`${r.method} ${s}`];
     const query = QUERY[s] ?? '';

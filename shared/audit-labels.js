@@ -14,10 +14,12 @@ export const ACTION_LABEL = {
   'substitute.assign': '보결 지정', 'substitute.cancel': '보결 취소', 'substitute.create': '보결 올림', 'substitute.release': '보결 풂', 'substitute.take': '보결 맡음',
   'classroom.delete': '반 지움', 'special_room.delete': '특별실 지움', 'subject.delete': '교과 지움', 'trash.restore': '지운 것 되살림',
   'term.import_previous': '지난 학기 가져옴', 'term.new_semester': '새 학기 시작', 'term.clear': '이번 학기 비움', 'term.undo_new_semester': '새 학기 시작 되돌림', 'membership.delete': '교사 소속 뗌',
+  'board.post': '도움·요청 글 올림', 'board.reply': '도움·요청 답글', 'board.stage': '도움·요청 처리 상태 바꿈', 'board.kind': '도움·요청 글 종류 고침', 'board.tags': '도움·요청 태그 고침', 'board.group': '도움·요청 글 묶음 바꿈', 'board.raise': '도움·요청 글을 총괄관리자에게 올림', // 문구-예외: 감사 이름표 표 자체(T-1324a①)
   'timetable.confirm': '시간표 확정', 'timetable.edit_confirmed': '확정본 직접 고침', 'timetable.save': '시안 저장', 'timetable.delete': '시간표 지움',
 };
 export const TABLE_LABEL = {
   app_user: '계정', attendance: '근태', booking: '예약', classroom: '반', delete_batch: '지운 묶음', special_room: '특별실', subject: '교과', membership: '명단', month_close: '근태 마감', org: '기관', room_lock: '특별실 잠금', substitute: '보결', term: '학기', timetable: '시간표',
+  board_post: '도움·요청 글', // 문구-예외: 감사 이름표 표 자체(T-1324a①)
 };
 const KEY_LABEL = {
   on_date: '날짜', date: '날짜', starts_on: '적용 시작일', name: '이름', hours: '시간', ym: '해당 월', role: '역할', status: '상태', grade: '등급', taken: '맡은 사람', by: '올린 사람', for: '결강 교사', ids: '건수', batch: '묶음 번호',
