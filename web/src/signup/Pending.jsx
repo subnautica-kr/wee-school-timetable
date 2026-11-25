@@ -29,6 +29,7 @@ export default function PendingScreen({ user, onLogout, onSession }) {
   const avgVars = pending && { 일수: pending.avgDays }; // 문구-예외: 문구 변수 이름
   const idVars = { 아이디: loginId }; // 문구-예외: 문구 변수 이름
   const contactVars = (v) => ({ 연락처: v }); // 문구-예외: 문구 변수 이름
+  const unlinkedVars = data?.unlinkedFrom?.orgName && { 학교: data.unlinkedFrom.orgName }; // 문구-예외: 문구 변수 이름
   const contacts = data?.contacts || {}; // 서버가 { org?, super? } 를 준다 — 적혀 있는 것만 오고 비면 그 줄이 안 보인다(기관 것은 닿은 학교 것만)
 
   async function copy() {
@@ -56,6 +57,12 @@ export default function PendingScreen({ user, onLogout, onSession }) {
                 {contacts.org && <Text size="sm">{t('signup.pending.contact_org', contactVars(contacts.org))}</Text>}
                 {contacts.super && <Text size="sm">{t('signup.pending.contact_super', contactVars(contacts.super))}</Text>}
                 <Text size="sm" c="dimmed"><T k={data.everLinked ? 'signup.pending.expire_back' : 'signup.pending.expire_new'} /></Text>
+              </>
+            ) : unlinkedVars && data?.noOrg === 'unlinked' ? (
+              <>
+                <Text>{t('signup.pending.unlinked', unlinkedVars)}</Text>
+                {contacts.org && <Text size="sm">{t('signup.pending.contact_org', contactVars(contacts.org))}</Text>}
+                {contacts.super && <Text size="sm">{t('signup.pending.contact_super', contactVars(contacts.super))}</Text>}
               </>
             ) : (
               <>

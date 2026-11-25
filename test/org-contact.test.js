@@ -85,6 +85,9 @@ test('연락처: 승인 대기·연결 해제 화면은 닿은 학교 연락처�
   const off = (await (await f.waiting(A, 'unlinked')).call('GET', '/api/signup/pending')).json;
   assert.equal(off.noOrg, 'unlinked');
   assert.deepEqual(off.contacts, { org: '내선 111' });
+  assert.equal(off.unlinkedFrom.orgName, `${f.tag}-가`, '해제된 학교 이름');
+  assert.ok(!JSON.stringify(off).includes(`${f.tag}-나`), '남의 학교 이름이 안 샌다');
+  assert.equal(p.unlinkedFrom, null, '승인 대기엔 이 칸이 없다');
   // 코드 없이 가입한 사람 — 어느 학교인지 몰라 기관 것이 없다
   const bare = await f.login(await f.user(`맨${f.tag}`));
   const nb = (await bare.call('GET', '/api/signup/pending')).json;
