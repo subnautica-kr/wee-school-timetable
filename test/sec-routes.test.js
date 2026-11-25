@@ -32,6 +32,7 @@ test('기관 경계(전 경로): A 세션으로 B 기관·B 자원을 두드리�
     if (name === 'uid') return f.users.adminB.uid;
     if (name === 'ym') return '2026-11';
     if (name === 'fmt') return 'pdf';
+    if (name === 'step') return 'roster'; // T-1308 school-setup 단계 이름
     if (name === 'id') {
       if (r.file === 'attendance.js') return B.att;
       if (r.file === 'loads.js') return B.load;
@@ -74,7 +75,7 @@ test('기관 경계(전 경로): A 세션으로 B 기관·B 자원을 두드리�
     if (r.file === 'admin.js') tries.push(fill(f.orgB)); // 기관 관리자는 상위 기관 경로 자체가 없다
     else {
       tries.push(fill(f.orgB)); // URL 기관이 남의 것
-      if (names.some((n) => !['orgId', 'ym', 'fmt'].includes(n))) tries.push(fill(f.orgA)); // 내 기관 URL + 남의 자원 id
+      if (names.some((n) => !['orgId', 'ym', 'fmt', 'step'].includes(n))) tries.push(fill(f.orgA)); // 내 기관 URL + 남의 자원 id
     }
     for (const url of tries) {
       const res = await a.call(r.method, url, body ?? (r.method === 'GET' || r.method === 'DELETE' ? undefined : {}));
