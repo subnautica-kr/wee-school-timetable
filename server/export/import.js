@@ -92,7 +92,8 @@ const RED = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC7CE' } }
 const HEAD_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } };
 const J = (v) => JSON.stringify(v ?? null);
 
-// 명단 스펙 — 이름·담당·생년월일. 반·아이디 열은 T-1302a① 몫이라 안 넣는다. 줄은 계정이 없을 수 있다(이름은 membership.name).
+// 명단 스펙 — 이름·담당·생년월일·아이디. 줄은 계정이 없을 수 있다(이름은 membership.name).
+// 아이디 열은 DB 칸이 없다(dbcols 빈 칸 — 값 반영·되돌리기에 안 든다). 연결은 명단 길목(roster.js)이 이 열을 읽어 따로 한다.
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const readBirth = (s) => {
   if (!s) return { set: { birth_date: null } };
@@ -110,12 +111,15 @@ export const rosterSpec = {
     { key: 'duty', get head() { return t('roster.excel.duty'); }, dbcols: ['duty'], list: (ctx) => ctx.cfg.duties,
       read: (s, ctx) => { const d = dutyFromText(ctx.cfg, s); return d === undefined ? { error: t('roster.excel_err.duty') } : { set: { duty: d } }; } },
     { key: 'birth', get head() { return t('roster.excel.birth'); }, dbcols: ['birth_date'], read: readBirth },
+    { key: 'loginId', get head() { return t('roster.excel.login'); }, dbcols: [], read: () => ({ set: {} }) },
   ],
   context: async (db, orgId) => ({ cfg: await loadConfig(db, orgId) }),
   rows: async (db, orgId) => (await db.query(
-    `SELECT id, name, duty, to_char(birth_date, 'YYYY-MM-DD') AS birth FROM membership WHERE org_id = $1 AND deleted_at IS NULL AND role <> '시스템관리자' ORDER BY name, id`, // 문구-예외: 저장 값
+    `SELECT m.id, m.name, m.duty, to_char(m.birth_date, 'YYYY-MM-DD') AS birth, u.login_id
+       FROM membership m LEFT JOIN app_user u ON u.id = m.user_id AND u.deleted_at IS NULL
+      WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.role <> '시스템관리자' ORDER BY m.name, m.id`, // 문구-예외: 저장 값
     [orgId],
-  )).rows.map((r) => ({ id: Number(r.id), text: { name: r.name ?? '', duty: r.duty ?? '', birth: r.birth ?? '' }, set: { name: r.name, duty: r.duty, birth_date: r.birth } })),
+  )).rows.map((r) => ({ id: Number(r.id), text: { name: r.name ?? '', duty: r.duty ?? '', birth: r.birth ?? '', loginId: r.login_id ?? '' }, set: { name: r.name, duty: r.duty, birth_date: r.birth } })),
   insert: async (db, orgId, set) => Number((await db.query(
     `INSERT INTO membership (org_id, role, name, duty, birth_date) VALUES ($1, '교직원', $2, $3, $4) RETURNING id`, // 문구-예외: 저장 값
     [orgId, set.name, set.duty ?? null, set.birth_date ?? null],
@@ -230,6 +234,7 @@ export async function applyPlans(client, orgId, userId, plans, { remove = false 
       try {
         if (kind === 'add') {
           const id = await p.spec.insert(client, orgId, x.set, ctx);
+          x.id = id; // 넣은 줄 번호 — 부른 쪽이 같은 줄에 뒷일(명단 아이디 연결)을 붙인다
           const now = {};
           for (const col of dbcols) now[col] = await readCol(id, col);
           await item(table, id, null, null, J(now));

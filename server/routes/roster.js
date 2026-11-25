@@ -2,14 +2,18 @@ import express from 'express';
 import { z } from 'zod';
 import ExcelJS from 'exceljs';
 import { requireOrgAction } from '../guard.js';
-import { createAccount, resetPassword, ID_RE } from '../accounts.js';
+import { createAccount, createLine, resetPassword, ID_RE } from '../accounts.js';
 import { getRuleLevels } from '../rules.js';
 import { currentTerm } from './school.js';
 import { audit, killSessions } from '../audit.js';
 import { inTx, removeWithCascade } from '../cascade.js';
-import { EXCEL_SPECS, applyPlans, makeWorkbook, markErrors, planSheet, readWorkbook, undoExcel } from '../export/import.js';
+import { EXCEL_SPECS, rosterSpec, applyPlans, makeWorkbook, markErrors, planSheet, readWorkbook, undoExcel } from '../export/import.js';
 import { fail } from '../fail.js';
-import { t } from '../../shared/text/index.js';
+import { t, 값이름 } from '../../shared/text/index.js';
+import { MEMBER_STATUS, MEMBER_STATUS_LOGIN, ROLE, DORMANT_REASON, TRANSFER_STATUS } from '../../shared/codes.js';
+import { linkAccount, unlinkAccount, withTx } from '../link.js';
+import { notify } from '../notify.js';
+import { sameName, sameBirth } from '../match.js';
 import { CEIL, dutyFromText, dutyKnown, dutyWarnings, limitWarnings, loadConfig, withWarnings } from '../orgConfig.js';
 
 // 명단 탭 — 줄 = 계정. 관리자만(school.manage). 모든 쿼리에 membership.org_id = req.orgId.
@@ -17,9 +21,16 @@ import { CEIL, dutyFromText, dutyKnown, dutyWarnings, limitWarnings, loadConfig,
 const idParam = z.coerce.number().int().positive();
 const ROLES = ['기관관리자', '교직원', '보기만'];
 const dutyIn = z.string().trim().min(1).max(20); // 목록 밖이면 거부 대신 경고(기관 설정 duties)
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const isDate = (s) => { const m = DATE_RE.exec(s); const d = m && new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])); return !!d && d.getUTCDate() === +m[3] && d.getUTCMonth() === +m[2] - 1; };
+const birthIn = z.string().trim().refine(isDate).nullable().optional();
+const STATUSES = Object.values(MEMBER_STATUS); // 재직(사용)·휴직·전출·퇴직(숨김) — 저장 값
+const STATUS_ORDER = [MEMBER_STATUS.ACTIVE, MEMBER_STATUS.LEAVE, MEMBER_STATUS.TRANSFERRED, MEMBER_STATUS.RETIRED];
+// 줄 넣기 — loginId 가 없으면 계정 없는 줄(새 길) · 있으면 「계정 만들어 주기」(옛 길: 계정 + 임시 비밀번호)
 const personBody = z.object({
   name: z.string().trim().min(1).max(50),
-  loginId: z.string().trim().regex(ID_RE),
+  loginId: z.string().trim().regex(ID_RE).optional(),
+  birthDate: birthIn,
   role: z.enum(ROLES).default('교직원'),
   duty: dutyIn.nullable().optional(),
 });
@@ -28,8 +39,11 @@ const patchBody = z.object({
   loginId: z.string().trim().regex(ID_RE).optional(),
   role: z.enum(ROLES).optional(),
   duty: dutyIn.nullable().optional(),
-  hidden: z.boolean().optional(), // 숨김(표시 삭제)
+  hidden: z.boolean().optional(), // 옛 요청 — true = 퇴직, false = 재직
+  status: z.enum(STATUSES).optional(), // 재직 상태 저장 값(MEMBER_STATUS)
+  birthDate: birthIn,
 });
+const bulkStatusBody = z.object({ ids: z.array(idParam).min(1).max(CEIL.rosterRows), status: z.enum(STATUSES) });
 
 const MAX_ROWS = CEIL.rosterRows; // 안전 천장. 기관 limits.rosterRows 를 넘으면 경고
 const MAX_COLS = 20;
@@ -64,13 +78,15 @@ export function rosterRouter(pool) {
     try {
       const { rows } = await pool.query(
         `SELECT m.id, m.name, u.login_id AS "loginId", m.role, m.duty, m.status AS "listStatus",
-                CASE WHEN u.status = '잠김' OR (u.locked_until IS NOT NULL AND u.locked_until > now()) THEN '잠김'
+                to_char(m.birth_date, 'YYYY-MM-DD') AS "birthDate", (m.user_id IS NOT NULL) AS "hasAccount",
+                CASE WHEN m.user_id IS NULL THEN $2::text
+                     WHEN u.status = '잠김' OR (u.locked_until IS NOT NULL AND u.locked_until > now()) THEN '잠김'
                      WHEN u.last_login_at IS NULL THEN '첫 로그인 전' ELSE '사용 중' END AS "state",
                 COALESCE(u.status = '잠김', FALSE) AS "manualLock", u.last_login_at AS "lastLogin"
            FROM membership m LEFT JOIN app_user u ON u.id = m.user_id AND u.deleted_at IS NULL
           WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.role <> '시스템관리자' AND (m.user_id IS NULL OR u.id IS NOT NULL)
-          ORDER BY m.status, m.name, m.id`,
-        [req.orgId],
+          ORDER BY array_position($3::text[], m.status), m.name, m.id`,
+        [req.orgId, t('roster.state.none'), STATUS_ORDER],
       );
       res.json(rows);
     } catch (e) {
@@ -82,10 +98,18 @@ export function rosterRouter(pool) {
     try {
       const p = personBody.safeParse(req.body);
       if (!p.success) return res.status(400).json({ error: '입력을 확인해 주세요(ID 에는 공백·따옴표·슬래시를 쓸 수 없습니다)' });
-      const a = await createAccount(pool, { orgId: req.orgId, ...p.data, duty: p.data.duty ?? null });
+      const d = p.data;
+      const warn = async () => dutyWarnings(await loadConfig(pool, req.orgId), d.duty);
+      if (!d.loginId) {
+        const l = await createLine(pool, { orgId: req.orgId, name: d.name, role: d.role, duty: d.duty ?? null, birthDate: d.birthDate ?? null });
+        await audit(pool, { ...me(req), action: 'roster.create-line', table: 'membership', rowId: l.membershipId, after: { name: d.name, role: d.role } });
+        return res.status(201).json(withWarnings({ id: l.membershipId, loginId: null, temp: null }, await warn()));
+      }
+      const a = await createAccount(pool, { orgId: req.orgId, name: d.name, loginId: d.loginId, role: d.role, duty: d.duty ?? null });
       if (a.error) return res.status(409).json({ error: a.error });
-      await audit(pool, { ...me(req), action: 'roster.create', table: 'membership', rowId: a.membershipId, after: { loginId: p.data.loginId, role: p.data.role } });
-      res.status(201).json(withWarnings({ id: a.membershipId, loginId: p.data.loginId, temp: a.temp }, dutyWarnings(await loadConfig(pool, req.orgId), p.data.duty)));
+      if (d.birthDate) await pool.query(`UPDATE membership SET birth_date = $2 WHERE id = $1`, [a.membershipId, d.birthDate]);
+      await audit(pool, { ...me(req), action: 'roster.create', table: 'membership', rowId: a.membershipId, after: { loginId: d.loginId, role: d.role } });
+      res.status(201).json(withWarnings({ id: a.membershipId, loginId: d.loginId, temp: a.temp }, await warn()));
     } catch (e) {
       next(e);
     }
@@ -108,33 +132,109 @@ export function rosterRouter(pool) {
     }
   });
 
+  // 재직 상태 바꾸기 한 줄(거래 안 client c) — 퇴직이면 공용 해제(휴면 사유 retired), 로그인 안 되는 상태면 세션 끊기.
+  // 맡은 담임·수업 수를 같이 돌려준다(자료는 안 지운다 — 시수표·시간표 칸은 그 줄을 그대로 가리킨다).
+  // 반환 { id, name, before, status, homeroom, classes, unlinked } 또는 { error: '<문구 키>' }
+  const changeStatus = async (c, orgId, byUserId, ln, status) => {
+    const base = { id: Number(ln.id), name: ln.name, before: ln.m_status, status };
+    const counts = async () => {
+      const h = (await c.query(`SELECT count(*)::int AS n FROM classroom WHERE org_id = $1 AND homeroom_membership_id = $2 AND deleted_at IS NULL`, [orgId, ln.id])).rows[0].n;
+      const l = (await c.query(`SELECT count(*)::int AS n FROM teaching_load WHERE org_id = $1 AND (membership_id = $2 OR second_membership_id = $2) AND deleted_at IS NULL`, [orgId, ln.id])).rows[0].n;
+      return { homeroom: h, classes: l };
+    };
+    if (ln.m_status === status) return { ...base, ...(await counts()), unlinked: false, same: true };
+    const off = !MEMBER_STATUS_LOGIN.includes(status);
+    if (off && ln.user_id != null && Number(ln.user_id) === Number(byUserId)) return { error: 'roster.err.self_status' };
+    if (off && ln.role === ROLE.ORG_ADMIN && ln.m_status === MEMBER_STATUS.ACTIVE) {
+      const n = (await c.query(`SELECT count(*)::int AS n FROM membership WHERE org_id = $1 AND role = $2 AND status = $3 AND deleted_at IS NULL`, [orgId, ROLE.ORG_ADMIN, MEMBER_STATUS.ACTIVE])).rows[0].n;
+      if (n <= 1) return { error: 'roster.err.last_admin' };
+    }
+    await c.query(`UPDATE membership SET status = $2 WHERE id = $1`, [ln.id, status]);
+    let unlinked = false;
+    if (status === MEMBER_STATUS.RETIRED && ln.user_id != null) {
+      const u = await unlinkAccount(c, { membershipId: ln.id, byUserId, reason: DORMANT_REASON.RETIRED });
+      if (u.error) return u;
+      unlinked = true;
+    } else if (off && ln.user_id != null) await killSessions(c, ln.user_id);
+    await audit(c, { orgId, userId: byUserId, action: 'roster.status', table: 'membership', rowId: ln.id, before: { status: ln.m_status }, after: { status, unlinked } });
+    return { ...base, ...(await counts()), unlinked };
+  };
+  // 담당이 빈 줄을 모아 학교 소식 한 줄(재직으로 되돌린 줄은 안 셈)
+  const noticeVacated = async (orgId, done) => {
+    const hit = done.filter((x) => !x.same && x.status !== MEMBER_STATUS.ACTIVE && x.homeroom + x.classes > 0);
+    if (!hit.length) return null;
+    const 담임 = hit.reduce((a, x) => a + x.homeroom, 0);
+    const 수업 = hit.reduce((a, x) => a + x.classes, 0);
+    const text = hit.length === 1
+      ? t('roster.notice.vacated', { 이름: hit[0].name ?? '', 상태: 값이름('membership.status', hit[0].status), 담임, 수업 })
+      : t('roster.notice.vacated_many', { 명: hit.length, 담임, 수업 });
+    return (await notify(pool, { orgId, kind: 'roster_vacated', text })).id;
+  };
+  const lineOf = async (db, orgId, mid) => (await db.query(
+    `SELECT id, user_id, role, status AS m_status, name FROM membership
+      WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL AND role <> $3 FOR UPDATE`, [mid, orgId, ROLE.SYSADMIN])).rows[0];
+
   r.patch('/:mid', async (req, res, next) => {
     try {
       const p = patchBody.safeParse(req.body);
-      if (!p.success) return res.status(400).json({ error: '입력을 확인해 주세요' });
-      const t = await target(req);
-      if (!t) return nf(res);
+      if (!p.success) return fail(res, 400, 'roster.err.bad_input');
+      const ln = await target(req);
+      if (!ln) return nf(res);
       const d = p.data;
-      const losesAdmin = t.role === '기관관리자' && ((d.role && d.role !== '기관관리자') || d.hidden === true);
+      const status = d.status ?? (d.hidden === undefined ? undefined : d.hidden ? MEMBER_STATUS.RETIRED : MEMBER_STATUS.ACTIVE);
+      const losesAdmin = ln.role === ROLE.ORG_ADMIN && d.role && d.role !== ROLE.ORG_ADMIN;
       // 이름은 줄 이름(학교가 적은 이름)이라 계정에 안 닿는다 — 계정에 닿는 건 아이디뿐
-      if (d.loginId && !t.user_id) return nf(res); // 계정 없는 줄엔 아이디가 없다(연결은 따로 하는 일)
-      const touchesAccount = !!(d.loginId && d.loginId !== t.login_id);
-      if (touchesAccount && (await sharedElsewhere(t))) return res.status(409).json({ error: SHARED });
+      if (d.loginId && !ln.user_id) return nf(res); // 계정 없는 줄엔 아이디가 없다(연결은 따로 하는 일)
+      const touchesAccount = !!(d.loginId && d.loginId !== ln.login_id);
+      if (touchesAccount && (await sharedElsewhere(ln))) return res.status(409).json({ error: SHARED });
       if (losesAdmin && (await activeAdmins(req.orgId)) <= 1) return res.status(409).json({ error: '마지막 관리자는 뗄 수 없습니다. 먼저 다른 관리자를 올려 주세요' });
-      if (d.loginId && d.loginId.toLowerCase() !== t.login_id.toLowerCase()) {
+      if (d.loginId && d.loginId.toLowerCase() !== ln.login_id.toLowerCase()) {
         const dup = await pool.query(`SELECT 1 FROM app_user WHERE lower(login_id) = lower($1)`, [d.loginId]);
         if (dup.rows[0]) return res.status(409).json({ error: '이미 쓰고 있는 ID 입니다' });
       }
-      if (d.loginId) await pool.query(`UPDATE app_user SET login_id = $2 WHERE id = $1`, [t.user_id, d.loginId]);
+      // 재직 상태 먼저(거절되면 아무것도 안 바뀐다)
+      let st = null;
+      if (status !== undefined) {
+        st = await withTx(pool, async (c) => {
+          const cur = await lineOf(c, req.orgId, ln.id);
+          return cur ? changeStatus(c, req.orgId, req.session.userId, cur, status) : { error: 'roster.err.line_not_found' };
+        });
+        if (st.error) return fail(res, 409, st.error);
+      }
+      if (d.loginId && !st?.unlinked) await pool.query(`UPDATE app_user SET login_id = $2 WHERE id = $1`, [ln.user_id, d.loginId]);
       await pool.query(
-        `UPDATE membership SET role = COALESCE($2, role), duty = CASE WHEN $3::boolean THEN $4 ELSE duty END, status = CASE WHEN $5::text IS NULL THEN status ELSE $5 END,
-                name = COALESCE($6, name) WHERE id = $1`,
-        [t.id, d.role ?? null, 'duty' in d, d.duty ?? null, d.hidden === undefined ? null : d.hidden ? '숨김' : '사용', d.name || null],
+        `UPDATE membership SET role = CASE WHEN $7::boolean THEN role ELSE COALESCE($2, role) END, duty = CASE WHEN $3::boolean THEN $4 ELSE duty END,
+                name = COALESCE($5, name), birth_date = CASE WHEN $6::boolean THEN $8::date ELSE birth_date END WHERE id = $1`,
+        [ln.id, d.role ?? null, 'duty' in d, d.duty ?? null, d.name || null, 'birthDate' in d, !!st?.unlinked, d.birthDate ?? null],
       );
-      if (d.role && d.role !== t.role && ROLES.indexOf(d.role) > ROLES.indexOf(t.role)) await killSessions(pool, t.user_id); // 역할이 내려가면 세션 끊기
-      if (d.hidden) await killSessions(pool, t.user_id);
-      await audit(pool, { ...me(req), action: 'roster.update', table: 'membership', rowId: t.id, before: { role: t.role, loginId: t.login_id }, after: d });
-      res.json(withWarnings({ ok: true }, 'duty' in d ? dutyWarnings(await loadConfig(pool, req.orgId), d.duty) : []));
+      if (ln.user_id && d.role && d.role !== ln.role && ROLES.indexOf(d.role) > ROLES.indexOf(ln.role)) await killSessions(pool, ln.user_id); // 역할이 내려가면 세션 끊기
+      await audit(pool, { ...me(req), action: 'roster.update', table: 'membership', rowId: ln.id, before: { role: ln.role, loginId: ln.login_id }, after: d });
+      const notice = st ? await noticeVacated(req.orgId, [st]) : null;
+      res.json(withWarnings({ ok: true, ...(st ? { status: { ...st, notice } } : {}) }, 'duty' in d ? dutyWarnings(await loadConfig(pool, req.orgId), d.duty) : []));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // 여러 줄 재직 상태 한 번에(학년 말 퇴직·전출 몰림) — 줄마다 거래 하나(한 줄이 거절돼도 나머지는 바뀐다). 담당이 빈 것은 모아 소식 한 줄.
+  r.post('/status', async (req, res, next) => {
+    try {
+      const p = bulkStatusBody.safeParse(req.body);
+      if (!p.success) return fail(res, 400, 'roster.err.bad_input');
+      const results = [];
+      for (const id of [...new Set(p.data.ids)]) {
+        const out = await withTx(pool, async (c) => {
+          const cur = await lineOf(c, req.orgId, id);
+          return cur ? changeStatus(c, req.orgId, req.session.userId, cur, p.data.status) : { error: 'roster.err.line_not_found' };
+        });
+        results.push(out.error ? { id, ok: false, code: out.error, error: t(out.error) } : { ok: true, ...out });
+      }
+      const done = results.filter((x) => x.ok);
+      const notice = await noticeVacated(req.orgId, done);
+      res.json({
+        results, changed: done.filter((x) => !x.same).length, failed: results.length - done.length,
+        homeroom: done.reduce((a, x) => a + x.homeroom, 0), classes: done.reduce((a, x) => a + x.classes, 0), notice,
+      });
     } catch (e) {
       next(e);
     }
@@ -208,15 +308,75 @@ export function rosterRouter(pool) {
     res.send(buf);
   };
   const excelErr = (res, next, e) => (e.status && e.expose ? res.status(e.status).json({ error: e.message, code: e.code }) : next(e));
-  // 올린 파일에서 시트가 있는 스펙만 계획으로 만든다(시트가 하나도 없으면 400)
+  // 올린 파일에서 시트가 있는 스펙만 계획으로 만든다(시트가 하나도 없으면 400). 명단 아이디 연결용으로 시트 원본도 같이.
   const plansOf = async (db, orgId, buf) => {
     const book = await readWorkbook(buf);
     const specs = EXCEL_SPECS.filter((s) => book[s.sheet]);
     if (!specs.length) throw Object.assign(new Error(t('school.excel_err.no_sheet', { 시트: EXCEL_SPECS.map((s) => s.sheet).join('·') })), { status: 400, expose: true, code: 'school.excel_err.no_sheet' });
     const plans = [];
     for (const spec of specs) plans.push(await planSheet(db, orgId, spec, book[spec.sheet]));
-    return plans;
+    return Object.assign(plans, { book });
   };
+
+  // 명단 시트 아이디 칸 → 연결 계획(다시 올리기 규칙 셋 · 11-25 재검)
+  //  ① 아이디 칸이 비면 아무것도 안 한다(이미 된 연결도 그대로 — 해제는 줄 메뉴에서만)
+  //  ② 줄마다 kind: linked(연결) · pending(다른 학교 재직 → 전출 요청 · 승인 대기) · check(이름·생년월일 다름 → 하나씩 봄)
+  //                 missing(계정 없음 → 줄만) · taken(줄에 다른 계정) · in_org(이 학교 다른 줄에 연결됨) — 뒤 넷은 반영 안 함
+  //  ③ 되돌리기는 줄 값만(아이디 열은 dbcols 가 없어 되돌리기 기록에 안 든다)
+  const linkPlan = async (db, orgId, plans) => {
+    const plan = plans.find((p) => p.spec.name === rosterSpec.name);
+    const rows = plan && plans.book[plan.sheet];
+    if (!rows) return [];
+    const head = rows[0] ?? [];
+    const col = (key, dflt) => { const c = plan.spec.cols.find((x) => x.key === key); const i = head.indexOf(c.head); return i >= 0 ? i : dflt; };
+    const [li, ni, bi] = [col('loginId', 4), col('name', 1), col('birth', 3)];
+    const bad = new Set(plan.errors.map((e) => e.line));
+    const out = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i] ?? [];
+      const line = i + 1;
+      const loginId = String(r[li] ?? '').trim();
+      if (!loginId || bad.has(line)) continue;
+      const id = Number(String(r[0] ?? '').trim()) || null;
+      const cur = id ? (await db.query(`SELECT m.name, m.birth_date, m.user_id, u.login_id FROM membership m LEFT JOIN app_user u ON u.id = m.user_id WHERE m.id = $1 AND m.org_id = $2`, [id, orgId])).rows[0] : null;
+      if (cur?.user_id != null && String(cur.login_id ?? '').toLowerCase() === loginId.toLowerCase()) continue; // 이미 그 계정
+      const name = String(r[ni] ?? '').trim() || cur?.name;
+      const birth = String(r[bi] ?? '').trim() || cur?.birth_date || null;
+      const push = (kind, extra = {}) => out.push({ line, id, loginId, kind, msg: t(`roster.excel_link.${kind}`), ...extra });
+      if (cur?.user_id != null) { push('taken'); continue; }
+      const u = (await db.query(`SELECT id, name, birth_date FROM app_user WHERE lower(login_id) = lower($1) AND deleted_at IS NULL`, [loginId])).rows[0];
+      if (!u) { push('missing'); continue; }
+      const userId = Number(u.id);
+      if ((await db.query(`SELECT 1 FROM membership WHERE user_id = $1 AND org_id = $2 AND deleted_at IS NULL`, [userId, orgId])).rows[0]) { push('in_org'); continue; }
+      if (sameName(name, u.name) === false || sameBirth(birth, u.birth_date) === false) { push('check', { userId }); continue; }
+      const home = (await db.query(
+        `SELECT org_id FROM membership WHERE user_id = $1 AND org_id <> $2 AND deleted_at IS NULL AND status = ANY($3::text[]) AND NOT is_concurrent ORDER BY id LIMIT 1`,
+        [userId, orgId, MEMBER_STATUS_LOGIN])).rows[0];
+      if (home) push('pending', { userId, fromOrg: Number(home.org_id) });
+      else push('linked', { userId });
+    }
+    return out;
+  };
+  // 반영 뒤 연결 계획 실행(같은 거래 안) — 새 줄은 applyPlans 가 적은 id 로 찾는다. 결과에 done(true/false)을 붙인다.
+  const runLinks = async (c, orgId, byUserId, plans, links) => {
+    const roster = plans.find((p) => p.spec.name === rosterSpec.name);
+    const addId = new Map((roster?.add ?? []).filter((x) => x.id).map((x) => [x.line, x.id]));
+    const out = [];
+    for (const l of links) {
+      const mid = l.id ?? addId.get(l.line);
+      if (!mid || !['linked', 'pending'].includes(l.kind)) { out.push({ ...l, id: mid ?? null, done: false }); continue; }
+      if (l.kind === 'linked') {
+        const r = await linkAccount(c, { membershipId: mid, userId: l.userId, byUserId });
+        out.push(r.error ? { ...l, id: mid, done: false, code: r.error, msg: t(r.error) } : { ...l, id: mid, done: true });
+      } else {
+        const has = (await c.query(`SELECT 1 FROM transfer_request WHERE user_id = $1 AND to_org = $2 AND status = $3`, [l.userId, orgId, TRANSFER_STATUS.WAITING])).rows[0];
+        if (!has) await c.query(`INSERT INTO transfer_request (from_org, to_org, user_id, to_membership_id, created_by) VALUES ($1,$2,$3,$4,$5)`, [l.fromOrg, orgId, l.userId, mid, byUserId]);
+        out.push({ ...l, id: mid, done: true });
+      }
+    }
+    return out;
+  };
+  const hideIds = ({ userId, fromOrg, ...x }) => x; // 계정 번호는 화면에 안 낸다
   const rawXlsx = express.raw({ type: () => true, limit: '5mb' });
 
   r.get('/excel', async (req, res, next) => {
@@ -232,8 +392,11 @@ export function rosterRouter(pool) {
       if (!Buffer.isBuffer(req.body) || !req.body.length) return fail(res, 400, 'school.excel_err.empty_file');
       const plans = await plansOf(pool, req.orgId, req.body);
       const hasErr = plans.some((p) => p.errors.length);
+      const links = (await linkPlan(pool, req.orgId, plans)).map(hideIds);
       res.json({
         sheets: plans.map((p) => ({ sheet: p.sheet, name: p.spec.name, removable: p.spec.removable, add: p.add.map((x) => x.line), change: p.change.map((x) => ({ line: x.line, id: x.id })), remove: p.remove, same: p.same.length, errors: p.errors })),
+        links,
+        ...(links.length ? { undoNote: t('roster.excel.undo_note') } : {}),
         ...(hasErr ? { marked: (await markErrors(req.body, plans)).toString('base64'), markedName: t('school.excel.file_marked') } : {}),
       });
     } catch (e) { excelErr(res, next, e); }
@@ -245,8 +408,14 @@ export function rosterRouter(pool) {
       if (!Buffer.isBuffer(req.body) || !req.body.length) return fail(res, 400, 'school.excel_err.empty_file');
       const rm = String(req.query.remove ?? '');
       const remove = rm === 'all' ? true : rm.split(',').filter(Boolean);
-      const out = await inTx(pool, async (c) => applyPlans(c, req.orgId, req.session.userId, await plansOf(c, req.orgId, req.body), { remove }));
-      await audit(pool, { ...me(req), action: 'roster.excel', table: 'delete_batch', rowId: out.batchId, after: { added: out.added, changed: out.changed, removed: out.removed, failed: out.failed.length } });
+      const out = await inTx(pool, async (c) => {
+        const plans = await plansOf(c, req.orgId, req.body);
+        const links = await linkPlan(c, req.orgId, plans); // 반영 전에 가른다(새 줄 이름·생년월일은 시트 값으로 대조)
+        const o = await applyPlans(c, req.orgId, req.session.userId, plans, { remove });
+        o.links = (await runLinks(c, req.orgId, req.session.userId, plans, links)).map(hideIds);
+        return o;
+      });
+      await audit(pool, { ...me(req), action: 'roster.excel', table: 'delete_batch', rowId: out.batchId, after: { added: out.added, changed: out.changed, removed: out.removed, failed: out.failed.length, linked: out.links.filter((x) => x.done && x.kind === 'linked').length } });
       res.json(out);
     } catch (e) { excelErr(res, next, e); }
   });
@@ -255,7 +424,20 @@ export function rosterRouter(pool) {
     try {
       const p = z.object({ batchId: z.coerce.number().int().positive() }).safeParse(req.body);
       if (!p.success) return fail(res, 400, 'school.excel_err.no_batch');
-      const out = await inTx(pool, (c) => undoExcel(c, req.orgId, p.data.batchId));
+      // 규칙 ③ — 되돌리기는 줄 값만. 그 올리기로 넣은 줄에 그사이 계정이 연결됐으면 줄을 안 지운다(연결을 안 되돌림 → skipped)
+      const out = await inTx(pool, async (c) => {
+        const linkedNew = (await c.query(
+          `SELECT m.id FROM delete_batch_item i JOIN membership m ON m.id = i.row_id
+            WHERE i.batch_id = $1 AND i.table_name = 'membership' AND i.column_name IS NULL AND m.org_id = $2 AND m.deleted_at IS NULL AND m.user_id IS NOT NULL`,
+          [p.data.batchId, req.orgId])).rows.map((x) => Number(x.id));
+        const o = await undoExcel(c, req.orgId, p.data.batchId);
+        if (linkedNew.length) {
+          await c.query(`UPDATE membership SET deleted_at = NULL WHERE id = ANY($1::bigint[]) AND org_id = $2`, [linkedNew, req.orgId]);
+          o.undone -= linkedNew.length;
+          o.skipped.push(...linkedNew.map((id) => ({ table: 'membership', rowId: id, column: null, linked: true })));
+        }
+        return o;
+      });
       await audit(pool, { ...me(req), action: 'roster.excel-undo', table: 'delete_batch', rowId: p.data.batchId, after: { undone: out.undone, skipped: out.skipped.length } });
       res.json(out);
     } catch (e) { excelErr(res, next, e); }
