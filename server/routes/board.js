@@ -1,5 +1,9 @@
 import express from 'express';
+import zlib from 'node:zlib';
+import { promisify } from 'node:util';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
+import { registerCleanup } from '../cleanup.js';
 import { requireLogin } from '../guard.js';
 import { can, ROLES } from '../permissions.js';
 import { audit } from '../audit.js';
@@ -16,6 +20,9 @@ const STAGES = ['received', 'reviewing', 'working', 'done', 'hold'];
 const SYS = ROLES[0]; // 시스템관리자
 const ADMIN = ROLES[1]; // 기관관리자
 
+const gzip = promisify(zlib.gzip);
+const gunzip = promisify(zlib.gunzip);
+
 const id = z.coerce.number().int().positive();
 const postIn = z.object({
   kind: z.enum(KINDS),
@@ -23,6 +30,7 @@ const postIn = z.object({
   title: z.string().trim().min(1).max(200),
   body: z.string().max(20000).default(''),
   context: z.record(z.string(), z.unknown()).default({}),
+  errorReportId: id.optional(), // 오류 기록에서 글쓰기 창을 연 경우 — 그 기록 번호
 });
 
 const who = (req) => ({ uid: req.session.userId, orgId: req.session.orgId ?? null, sys: req.session.role === SYS, admin: req.session.role === ADMIN && req.session.orgId != null });
@@ -57,10 +65,109 @@ async function findVisible(pool, w, postId) {
 // 총괄관리자는 보이는 글 모두, 기관 관리자는 우리 학교 글 가운데 자기가 볼 수 있는 글만
 const mayManage = (w, p) => w.sys || (w.admin && p.orgId != null && String(p.orgId) === String(w.orgId));
 
+// ── 오류 기록(자동 수집) — 서버에서 가린 뒤 싣는다 ─────────────────────────
+const MASK = t('board.errlog.mask');
+const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+const PHONE = /(?:\+?82[-\s]?)?0\d{1,2}[-.\s]?\d{3,4}[-.\s]?\d{4}/g;
+const RRN = /\d{6}[-\s]?[1-4]\d{6}/g;
+const PERSON_KEY = /("(?:name|userName|loginId|login_id|username|password|phone|tel|email|birth|birthDate)"\s*:\s*)"[^"]*"/gi;
+const HONORIFIC = /[가-힣]{2,4}(?=\s?(?:선생님|님|교사|주무관))/g;
+const URL_QUERY = /(\/[\w\-./:%]*)\?[^\s'")#\]]*/g;
+
+// 이름·아이디·전화·이메일 같은 개인 정보를 지우고 남긴다. secrets = 그 요청 사람의 이름·아이디(글자 그대로 찾아 가림)
+export function scrubText(s, secrets = []) {
+  let out = String(s ?? '');
+  for (const x of secrets) if (x && String(x).length >= 2) out = out.split(String(x)).join(MASK);
+  return out
+    .replace(PERSON_KEY, `$1"${MASK}"`)
+    .replace(EMAIL, MASK).replace(RRN, MASK).replace(PHONE, MASK)
+    .replace(URL_QUERY, '$1')
+    .replace(HONORIFIC, MASK);
+}
+
+// 직전 요청 경로·화면 이름은 쿼리값을 뺀 경로만
+const pathOnly = (s) => String(s ?? '').split('?')[0].slice(0, 200);
+
+async function secretsOf(pool, req) {
+  const out = [req.session?.name];
+  if (req.session?.userId) {
+    try { out.push((await pool.query(`SELECT login_id FROM app_user WHERE id = $1`, [req.session.userId])).rows[0]?.login_id); } catch { /* 가림 보조라 실패해도 본 일은 간다 */ }
+  }
+  return out.filter(Boolean);
+}
+
+export async function saveErrorReport(pool, req, rep) {
+  const sec = await secretsOf(pool, req);
+  const sc = (x, n) => scrubText(x, sec).slice(0, n);
+  const recent = (Array.isArray(rep.recent) ? rep.recent : []).slice(-20).map((x) => sc(pathOnly(x), 200));
+  const { rows } = await pool.query(
+    `INSERT INTO error_report (org_id, user_id, message, stack, screen, version, ua, recent) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+    [req.session?.orgId ?? null, req.session?.userId ?? null, sc(rep.message, 2000), rep.stack ? sc(rep.stack, 8000) : null,
+      rep.screen ? sc(pathOnly(rep.screen), 300) : null, rep.version ? sc(rep.version, 50) : null, sc(req.get('user-agent') ?? '', 300), JSON.stringify(recent)],
+  );
+  return Number(rows[0].id);
+}
+
+// 서버 500 — app.js 오류 처리가 부른다. 기록하다 실패해도 본 응답은 간다. 폭주하면(1분 30건) 더 안 쓴다.
+let serverErrWindow = [];
+export async function recordServerError(pool, req, err) {
+  try {
+    const now = Date.now();
+    serverErrWindow = serverErrWindow.filter((x) => now - x < 60_000);
+    if (serverErrWindow.length >= 30) return null;
+    serverErrWindow.push(now);
+    return await saveErrorReport(pool, req, { message: err?.message || String(err), stack: err?.stack, screen: `${req.method} ${req.originalUrl}`, recent: [] });
+  } catch (e) {
+    console.error('error report save failed', e.message);
+    return null;
+  }
+}
+
+const errIn = z.object({
+  message: z.string().trim().min(1).max(4000),
+  stack: z.string().max(20000).optional(),
+  screen: z.string().max(500).optional(),
+  version: z.string().max(100).optional(),
+  recent: z.array(z.string().max(500)).max(100).default([]),
+});
+
+// ── 첨부 ──────────────────────────────────────────────
+export const ATTACH_MAX = 10 * 1024 * 1024;
+const ATTACH_PER_POST = 5;
+const TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', hwpx: 'application/vnd.hancom.hwpx', pdf: 'application/pdf', txt: 'text/plain; charset=utf-8' };
+const startsWith = (b, bytes) => bytes.every((x, i) => b[i] === x);
+// 이름 끝 글자만 믿지 않고 첫 바이트로도 본다
+function sniffOk(ext, b) {
+  if (ext === 'png') return startsWith(b, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (ext === 'jpg' || ext === 'jpeg') return startsWith(b, [0xff, 0xd8, 0xff]);
+  if (ext === 'pdf') return startsWith(b, [0x25, 0x50, 0x44, 0x46, 0x2d]);
+  if (ext === 'xlsx') return startsWith(b, [0x50, 0x4b, 0x03, 0x04]) && b.includes('xl/');
+  if (ext === 'hwpx') return startsWith(b, [0x50, 0x4b, 0x03, 0x04]) && b.includes('Contents/');
+  if (ext === 'txt') return !b.subarray(0, 8192).includes(0);
+  return false;
+}
+const mb = (n) => `${(n / 1048576).toFixed(1)}MB`;
+const cleanName = (s) => String(s).replace(/[\\/\u0000-\u001f]/g, '_').replace(/^\.+/, '').slice(0, 120);
+
+// 90일이 지나면 파일 바이트만 비운다(글·첨부 줄은 남는다 — 글에 「보관 기간이 지났어요」)
+registerCleanup('board-attachment-90d', async (db, now) => {
+  const r = await db.query(`UPDATE board_attachment SET bytes = NULL WHERE bytes IS NOT NULL AND purge_after < $1::timestamptz`, [now]);
+  return r.rowCount;
+});
+
+const guard0 = (fn) => async (req, res, next) => { try { await fn(req, res); } catch (e) { next(e); } };
+
 const words = (s) => [...new Set(String(s).toLowerCase().split(/[^0-9a-z가-힣]+/).filter((x) => x.length >= 2))];
 
 export function boardRouter(pool) {
   const r = express.Router();
+  // 오류 기록 — 로그인 전 화면 오류도 받는다(그래서 로그인 검사 앞). 같은 IP 에서 1분 20건까지
+  const errLimit = rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: true, legacyHeaders: false, message: { error: t('board.err.errlog_limit') } });
+  r.post('/errors', errLimit, guard0(async (req, res) => {
+    const p = errIn.safeParse(req.body);
+    if (!p.success) return fail(res, 400, 'board.err.bad_input');
+    return res.status(201).json({ id: await saveErrorReport(pool, req, p.data) });
+  }));
   r.use(requireLogin);
   const bad = (res) => fail(res, 400, 'board.err.bad_input');
   const missing = (res) => fail(res, 404, 'board.err.not_found');
@@ -124,11 +231,16 @@ export function boardRouter(pool) {
       q(`SELECT p.id, p.title, p.stage FROM board_post p WHERE p.group_id = $5 AND p.deleted_at IS NULL AND {VIS} ORDER BY p.created_at`),
       [...visArgs(w), pid.data],
     );
+    const att = await pool.query(
+      `SELECT id, file_name AS "fileName", mime, size, (bytes IS NULL) AS purged FROM board_attachment WHERE post_id = $1 AND deleted_at IS NULL ORDER BY id`,
+      [pid.data],
+    );
     const { orgId, authorId, ...head } = show(post);
     res.json({
       post: { ...head, canManage: mayManage(w, post), canStage: w.sys || (mayManage(w, post) && post.visibility === 'org_admins'), canReply: mayManage(w, post) },
       comments: cm.rows.map((c) => ({ ...c, id: Number(c.id) })),
       grouped: kids.rows.map((k) => ({ ...k, id: Number(k.id) })),
+      attachments: att.rows.map((a) => ({ ...a, id: Number(a.id) })),
     });
   }));
 
@@ -144,6 +256,7 @@ export function boardRouter(pool) {
       [w.orgId, w.uid, d.kind, d.visibility, d.title, d.body, JSON.stringify(d.context)],
     );
     const postId = Number(ins.rows[0].id);
+    if (d.errorReportId) await pool.query(`UPDATE error_report SET board_post_id = $2 WHERE id = $1 AND user_id = $3 AND board_post_id IS NULL`, [d.errorReportId, postId, w.uid]);
     const text = t('board.notify.new_post', { 제목: d.title });
     if (d.visibility !== 'org_admins') await notify(pool, { sysadmin: true, kind: 'board.new_post', text, link: `board:${postId}` });
     if (d.visibility !== 'sysadmin') await notify(pool, { orgId: w.orgId, kind: 'board.new_post', text, link: `board:${postId}` });
@@ -254,6 +367,46 @@ export function boardRouter(pool) {
     await notify(pool, { sysadmin: true, kind: 'board.raised', text: t('board.notify.raised_sys', { 제목: post.title }), link: `board:${pid.data}` });
     await audit(pool, { orgId: w.orgId, userId: w.uid, action: 'board.raise', table: 'board_post', rowId: pid.data, before: { visibility: 'org_admins' }, after: { visibility: 'org_and_sysadmin' } });
     res.json({ ok: true, visibility: 'org_and_sysadmin' });
+  }));
+
+  // 첨부 올리기 — 글쓴이 본인만 · 본문은 파일 바이트 그대로(?name=파일이름) · 크기·꼴을 바로 거른다 · DB 안에 압축해 둔다
+  const rawBody = (req, res, next) => express.raw({ type: () => true, limit: '11mb' })(req, res, (e) => (e?.status === 413 ? fail(res, 413, 'board.err.attach_too_big', { 크기: '11MB' }) : next(e)));
+  r.post('/posts/:id/attachments', rawBody, guard(async (req, res) => {
+    const pid = id.safeParse(req.params.id);
+    const nm = z.string().trim().min(1).max(200).safeParse(req.query.name);
+    if (!pid.success) return missing(res);
+    if (!nm.success || !Buffer.isBuffer(req.body) || req.body.length === 0) return bad(res);
+    const w = who(req);
+    const post = await findVisible(pool, w, pid.data);
+    if (!post) return missing(res);
+    if (String(post.authorId) !== String(w.uid)) return fail(res, 403, 'board.err.attach_not_yours');
+    const name = cleanName(nm.data);
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    if (req.body.length > ATTACH_MAX) return fail(res, 413, 'board.err.attach_too_big', { 크기: mb(req.body.length) });
+    if (!Object.hasOwn(TYPES, ext) || !sniffOk(ext, req.body)) return fail(res, 415, 'board.err.attach_bad_type');
+    const cnt = await pool.query(`SELECT count(*)::int AS n FROM board_attachment WHERE post_id = $1 AND deleted_at IS NULL`, [pid.data]);
+    if (cnt.rows[0].n >= ATTACH_PER_POST) return fail(res, 409, 'board.err.attach_too_many', { 개수: ATTACH_PER_POST });
+    const packed = await gzip(req.body);
+    const ins = await pool.query(`INSERT INTO board_attachment (post_id, file_name, mime, size, bytes) VALUES ($1,$2,$3,$4,$5) RETURNING id`, [pid.data, name, TYPES[ext], req.body.length, packed]);
+    await audit(pool, { orgId: w.orgId, userId: w.uid, action: 'board.attach', table: 'board_post', rowId: pid.data, after: { size: req.body.length, ext } });
+    return res.status(201).json({ id: Number(ins.rows[0].id) });
+  }));
+
+  // 첨부 내려받기 — 글을 볼 수 있는 사람만. 90일이 지나 비운 것은 410
+  r.get('/attachments/:id', guard(async (req, res) => {
+    const aid = id.safeParse(req.params.id);
+    if (!aid.success) return missing(res);
+    const w = who(req);
+    const { rows } = await pool.query(
+      q(`SELECT a.file_name, a.mime, a.bytes FROM board_attachment a JOIN board_post p ON p.id = a.post_id
+        WHERE a.id = $5 AND a.deleted_at IS NULL AND p.deleted_at IS NULL AND {VIS}`),
+      [...visArgs(w), aid.data],
+    );
+    if (!rows[0]) return missing(res);
+    if (!rows[0].bytes) return fail(res, 410, 'board.err.attach_purged');
+    const body = await gunzip(rows[0].bytes);
+    res.set({ 'Content-Type': rows[0].mime, 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(rows[0].file_name) });
+    return res.send(body);
   }));
 
   return r;

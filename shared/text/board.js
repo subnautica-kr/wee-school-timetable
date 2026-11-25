@@ -12,7 +12,26 @@ export default {
     "group_self": "글을 자기 자신에게 묶을 수 없어요",
     "group_head_is_child": "이미 다른 글에 묶인 글에는 묶을 수 없어요. 맨 위 글에 묶어 주세요",
     "group_has_children": "다른 글이 묶여 있는 글은 옮길 수 없어요. 묶인 글을 먼저 풀어 주세요",
-    "group_not_visible": "묶을 글을 찾지 못했어요"
+    "group_not_visible": "묶을 글을 찾지 못했어요",
+    "attach_too_big": "파일이 10MB 를 넘어요(지금 {크기}). 화면을 잘라 찍거나 압축해서 다시 골라 주세요",
+    "attach_bad_type": "올릴 수 없는 파일이에요. png·jpg·xlsx·hwpx·pdf·txt 만 올릴 수 있어요. 파일 이름 끝(확장자)과 내용이 맞는지도 확인해 주세요",
+    "attach_too_many": "첨부는 글 하나에 {개수}개까지 올릴 수 있어요",
+    "attach_not_yours": "내가 쓴 글에만 파일을 붙일 수 있어요",
+    "attach_purged": "첨부 보관 기간(90일)이 지났어요",
+    "errlog_limit": "오류 기록을 너무 자주 보내고 있어요. 잠시 뒤에 다시 시도해 주세요"
+  },
+  "errlog": {
+    "_자리": "화면 어디서나 › 오류 안내 줄·오류 화면 › 화면에 문제가 생겨 오류가 기록됐을 때",
+    "mask": "(가림)",
+    "recorded": "오류가 기록됐어요(기록 번호 {번호})",
+    "recorded_no_id": "오류가 생겼어요. 기록을 남기지 못했어요",
+    "boundary_head": "화면에 문제가 생겼어요",
+    "boundary_hint": "화면을 새로 고치면 대부분 풀려요. 계속되면 아래 단추로 알려 주세요",
+    "help_button": "도움·요청 글쓰기",
+    "reload": "화면 새로 고침",
+    "dismiss": "닫기",
+    "post_title": "오류 기록 {번호}",
+    "post_linked": "오류 기록 번호 {번호}(이)가 이 글에 함께 붙어요"
   },
   "notify": {
     "_자리": "종 › 소식 줄 › 도움·요청 글이 새로 오르거나 공개 범위가 올라갔을 때",
@@ -67,7 +86,10 @@ export default {
     "done": "글을 올렸어요",
     "need_title": "제목을 적어 주세요",
     "need_body": "내용을 적어 주세요",
-    "attach_later": "첨부 파일은 아직 올릴 수 없어요"
+    "attach_add": "파일 추가",
+    "attach_hint": "png·jpg·xlsx·hwpx·pdf·txt · 파일 하나 10MB 까지 · 글 하나에 5개까지. 큰 그림은 줄여서 올려요",
+    "attach_remove": "빼기",
+    "attach_failed": "글은 올렸지만 첨부 「{이름}」(을/를) 올리지 못했어요. {사유}"
   },
   "detail": {
     "_자리": "도움·요청 창 › 글 보기 › 글 하나를 열었을 때",
@@ -86,7 +108,10 @@ export default {
     "raise": "총괄관리자에게 올리기",
     "raised": "총괄관리자에게도 보이게 올렸어요",
     "group_in": "비슷한 글 {개수}개가 이 글에 묶여 있어요",
-    "loading": "글을 불러오는 중이에요"
+    "loading": "글을 불러오는 중이에요",
+    "attachments": "첨부",
+    "attach_download": "내려받기",
+    "attach_purged": "첨부 보관 기간(90일)이 지났어요"
   },
   "guide": {
     "_자리": "도움·요청 창 › 사용 설명·자주 묻는 질문·공지 탭 › 안내를 읽을 때",

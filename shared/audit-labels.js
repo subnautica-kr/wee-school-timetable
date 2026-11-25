@@ -16,7 +16,7 @@ export const ACTION_LABEL = {
   'substitute.assign': '보결 지정', 'substitute.cancel': '보결 취소', 'substitute.create': '보결 올림', 'substitute.release': '보결 풂', 'substitute.take': '보결 맡음',
   'classroom.delete': '반 지움', 'special_room.delete': '특별실 지움', 'subject.delete': '교과 지움', 'trash.restore': '지운 것 되살림',
   'term.import_previous': '지난 학기 가져옴', 'term.new_semester': '새 학기 시작', 'term.clear': '이번 학기 비움', 'term.undo_new_semester': '새 학기 시작 되돌림', 'membership.delete': '교사 소속 뗌',
-  'board.post': '도움·요청 글 올림', 'board.reply': '도움·요청 답글', 'board.stage': '도움·요청 처리 상태 바꿈', 'board.kind': '도움·요청 글 종류 고침', 'board.tags': '도움·요청 태그 고침', 'board.group': '도움·요청 글 묶음 바꿈', 'board.raise': '도움·요청 글을 총괄관리자에게 올림', // 문구-예외: 감사 이름표 표 자체(T-1324a①)
+  'board.post': '도움·요청 글 올림', 'board.reply': '도움·요청 답글', 'board.stage': '도움·요청 처리 상태 바꿈', 'board.kind': '도움·요청 글 종류 고침', 'board.tags': '도움·요청 태그 고침', 'board.group': '도움·요청 글 묶음 바꿈', 'board.raise': '도움·요청 글을 총괄관리자에게 올림', 'board.attach': '도움·요청 첨부 올림', // 문구-예외: 감사 이름표 표 자체(T-1324a①)
   'timetable.confirm': '시간표 확정', 'timetable.edit_confirmed': '확정본 직접 고침', 'timetable.save': '시안 저장', 'timetable.delete': '시간표 지움',
 };
 export const TABLE_LABEL = {
