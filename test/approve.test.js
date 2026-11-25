@@ -217,6 +217,7 @@ test('가입 승인: 남의 기관 승인 길목은 404', { skip: !HAS_DB && 'DB
   const u = await f.user(nm);
   await f.pending(B, LB, u.id);
   assert.equal((await a.call('GET', `/api/orgs/${B}/roster/approvals`)).status, 404);
+  assert.equal((await a.call('GET', `/api/orgs/${A}/roster/approvals`)).json.length, 0); // 내 목록에 남의 기관 건이 안 섞인다
   assert.equal((await a.call('POST', `/api/orgs/${B}/roster/approvals/${u.id}/approve`, { force: true })).status, 404);
   // 내 기관 경로로 남의 기관 대기 건을 집어도 404
   assert.equal((await a.call('POST', `/api/orgs/${A}/roster/approvals/${u.id}/approve`, { force: true })).status, 404);
