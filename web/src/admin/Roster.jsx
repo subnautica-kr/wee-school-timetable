@@ -6,7 +6,7 @@ import { t } from '../T.jsx';
 import SetupLink from '../school/SetupLink.jsx';
 import { 값이름 } from '../../../shared/text/index.js';
 import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
-import { LinkModal, UnlinkedBox } from './AccountLink.jsx';
+import { ConcurrentUntilModal, LinkModal, UnlinkedBox } from './AccountLink.jsx';
 import BulkLink from './BulkLink.jsx';
 import RosterExcel from './RosterExcel.jsx';
 import { TransferNote } from './Transfers.jsx';
@@ -37,6 +37,8 @@ export default function Roster({ orgId, onGoSetup }) {
   const [unlinked, setUnlinked] = useState([]); // 「연결 안 된 계정」 묶음
   const [linkLine, setLinkLine] = useState(null); // 「계정 연결」 창 대상 줄
   const [unlinkAsk, setUnlinkAsk] = useState(null); // 「연결 해제」 확인 대상 줄
+  const [concLine, setConcLine] = useState(null); // 「겸임 기한 바꾸기」 창 대상 줄
+  const [okMsg, setOkMsg] = useState(''); // 겸임 연결·기한 변경 완료 문구
   const [moved, setMoved] = useState(null); // 줄 지우기로 계정이 묶음에 간 사람 이름
   const load = () => {
     api('GET', `${base}/unlinked`).then(setUnlinked).catch(() => setUnlinked([]));
@@ -143,6 +145,7 @@ export default function Roster({ orgId, onGoSetup }) {
       {m.hasAccount
         ? <Button size="xs" variant="default" disabled={busy} onClick={() => setUnlinkAsk(m)}>{t('roster.unlink.menu')}</Button>
         : <Button size="xs" variant="default" disabled={busy} onClick={() => setLinkLine(m)}>{t('roster.link.menu')}</Button>}
+      {m.isConcurrent && <Button size="xs" variant="default" disabled={busy} onClick={() => setConcLine(m)}>{t('roster.concurrent_ui.edit')}</Button>}
       {m.hasAccount && <Button size="xs" variant="default" disabled={busy} onClick={() => post(m, 'reset-password')}>{t('roster.row.reset')}</Button>}
       <Button size="xs" variant="subtle" color="red" disabled={busy} onClick={() => del(cascadeOpts(`/orgs/${orgId}`, 'membership', m.id, m.name, `${base}/${m.id}`, {
         run: async () => { const r = await guarded((force) => api('DELETE', forcePath(`${base}/${m.id}`, force))); if (r) setMoved(r.unlinked ? m.name : null); }, title: t('roster.del.title', { 이름: m.name }), yes: t('roster.del.yes'), onDone: load,
@@ -153,7 +156,14 @@ export default function Roster({ orgId, onGoSetup }) {
   const pickBox = (m) => <Checkbox aria-label={m.name} checked={sel.has(m.id)} onChange={() => setSel(toggleId(sel, m.id))} />;
   const roleSel = (m) => <Select data={roleData} value={m.role} onChange={(v) => v && patch(m, { role: v })} allowDeselect={false} disabled={busy} size="xs" w={120} />;
   const stateBadge = (m) => <Badge color={m.state === '잠김' ? 'red' : m.state === '사용 중' ? 'green' : m.hasAccount ? 'yellow' : 'gray'}>{m.state}</Badge>;
+  const concText = (m) => (m.isConcurrent ? (m.concurrentUntil ? t('roster.concurrent_ui.badge', { 기한: m.concurrentUntil }) : t('roster.concurrent_ui.badge_open')) : ''); // 문구-예외: 문구 변수 이름
   const loginCell = (m) => (m.hasAccount ? m.loginId : t('roster.col.no_account'));
+  const accountCell = (m) => (
+    <Group gap={6} wrap="nowrap">
+      <span>{loginCell(m)}</span>
+      {m.isConcurrent && <Badge color="grape" variant="light" tt="none">{concText(m)}</Badge>}
+    </Group>
+  );
   const off = (m) => m.listStatus !== '사용';
 
   return (
@@ -164,6 +174,7 @@ export default function Roster({ orgId, onGoSetup }) {
       <Title order={4}>{t('roster.head.title', { 수: rows.length })}</Title>
       {err && <Alert color="red">{err}</Alert>}
       {note && <Alert color="yellow" withCloseButton onClose={() => setNote(null)}>{t('roster.bulk.vacated', note)}</Alert>}
+      {okMsg && <Alert color="green" withCloseButton onClose={() => setOkMsg('')}>{okMsg}</Alert>}
       {moved && <Alert color="blue" withCloseButton onClose={() => setMoved(null)}>{t('roster.moved.unlinked', { 이름: moved })}</Alert>}
       {bulkRes && (
         <Alert color={bulkRes.failed.length ? 'orange' : 'green'} withCloseButton onClose={() => setBulkRes(null)}>
@@ -215,7 +226,7 @@ export default function Roster({ orgId, onGoSetup }) {
               <Group gap="xs" wrap="nowrap">{pickBox(m)}<Text fw={600}>{m.name}{m.duty && <Text span size="xs" c="dimmed"> {m.duty}</Text>}</Text></Group>
               <div>{stateBadge(m)}</div>
             </Group>
-            <Text size="xs" c="dimmed" mb={4}>{showAccount && `${t('roster.account.col')} ${loginCell(m)} · `}{m.birthDate && `${m.birthDate} · `}{t('roster.col.classes')} {hv.byMember[m.id] || '-'} · {t('roster.col.last')} {m.lastLogin ? new Date(m.lastLogin).toLocaleString('ko-KR') : '-'}</Text>
+            <Text size="xs" c="dimmed" mb={4}>{showAccount && `${t('roster.account.col')} ${loginCell(m)}${m.isConcurrent ? ` (${concText(m)})` : ''} · `}{m.birthDate && `${m.birthDate} · `}{t('roster.col.classes')} {hv.byMember[m.id] || '-'} · {t('roster.col.last')} {m.lastLogin ? new Date(m.lastLogin).toLocaleString('ko-KR') : '-'}</Text>
             <Stack gap={6}>{roleSel(m)}{statusSel(m)}<Group gap="xs">{actions(m)}</Group></Stack>
           </Paper>
         ))}
@@ -229,7 +240,7 @@ export default function Roster({ orgId, onGoSetup }) {
                 <Table.Td>{pickBox(m)}</Table.Td>
                 <Table.Td>{m.name}{m.duty && <Text span size="xs" c="dimmed"> {m.duty}</Text>}</Table.Td>
                 <Table.Td>{m.birthDate || t('roster.col.no_account')}</Table.Td>
-                {showAccount && <Table.Td>{loginCell(m)}</Table.Td>}
+                {showAccount && <Table.Td>{accountCell(m)}</Table.Td>}
                 <Table.Td>{hv.byMember[m.id] || '-'}</Table.Td>
                 <Table.Td>{roleSel(m)}</Table.Td>
                 <Table.Td>{statusSel(m)}</Table.Td>
@@ -243,7 +254,8 @@ export default function Roster({ orgId, onGoSetup }) {
       </Table.ScrollContainer>
 
       <UnlinkedBox base={base} items={unlinked} rows={rows} onChanged={load} onError={setErr} />
-      {linkLine && <LinkModal line={linkLine} base={base} onClose={() => setLinkLine(null)} onChanged={load} onTemp={setTemp} onError={setErr} onTransfer={(r) => setMoveNote(transferNote(r))} />}
+      {concLine && <ConcurrentUntilModal line={concLine} base={base} onClose={() => setConcLine(null)} onChanged={load} onDone={setOkMsg} onError={setErr} />}
+      {linkLine && <LinkModal line={linkLine} onDone={setOkMsg} base={base} onClose={() => setLinkLine(null)} onChanged={load} onTemp={setTemp} onError={setErr} onTransfer={(r) => setMoveNote(transferNote(r))} />}
       {bulkLink && <BulkLink base={base} lines={rows} onClose={() => setBulkLink(false)} onChanged={load} />}
       <Modal opened={!!unlinkAsk} onClose={() => setUnlinkAsk(null)} title={t('roster.unlink.title', { 이름: unlinkAsk?.name ?? '' })} centered>
         {unlinkAsk && (

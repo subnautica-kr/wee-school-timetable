@@ -87,7 +87,8 @@ export function rosterRouter(pool) {
                 CASE WHEN m.user_id IS NULL THEN $2::text
                      WHEN u.status = '잠김' OR (u.locked_until IS NOT NULL AND u.locked_until > now()) THEN '잠김'
                      WHEN u.last_login_at IS NULL THEN '첫 로그인 전' ELSE '사용 중' END AS "state",
-                COALESCE(u.status = '잠김', FALSE) AS "manualLock", u.last_login_at AS "lastLogin"
+                COALESCE(u.status = '잠김', FALSE) AS "manualLock", u.last_login_at AS "lastLogin",
+                (m.user_id IS NOT NULL AND m.is_concurrent) AS "isConcurrent", to_char(m.concurrent_until, 'YYYY-MM-DD') AS "concurrentUntil"
            FROM membership m LEFT JOIN app_user u ON u.id = m.user_id AND u.deleted_at IS NULL
           WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.role <> '시스템관리자' AND (m.user_id IS NULL OR u.id IS NOT NULL)
           ORDER BY array_position($3::text[], m.status), m.name, m.id`,

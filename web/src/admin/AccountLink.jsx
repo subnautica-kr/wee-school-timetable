@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Accordion, Alert, Button, Group, Modal, Paper, SegmentedControl, Select, Stack, Text, TextInput } from '@mantine/core';
+import { Accordion, Alert, Button, Checkbox, Group, Modal, Paper, SegmentedControl, Select, Stack, Text, TextInput } from '@mantine/core';
 import { api } from '../api.js';
 import { t } from '../T.jsx';
 import { dateText, daysLeft, freeLineOptions, needsConfirm, warningLines } from './linkView.js';
@@ -48,17 +48,23 @@ export function useLinker({ onLinked, onError }) {
 }
 
 // 줄 하나의 「계정 연결」 창 — 초대 코드 · 아이디로 연결 · 계정 만들어 주기
-export function LinkModal({ line, base, onClose, onChanged, onTemp, onError, onTransfer }) {
+export function LinkModal({ line, base, onClose, onChanged, onTemp, onError, onTransfer, onDone }) {
   const [tab, setTab] = useState('invite');
   const [loginId, setLoginId] = useState('');
   const [makeId, setMakeId] = useState('');
+  const [conc, setConc] = useState(false); // 「겸임으로 연결」
+  const [until, setUntil] = useState(''); // 겸임 기한 — 비면 서버가 그 학년도 2월 말일
   const [invite, setInvite] = useState(null); // { code, expiresAt }
   const [again, setAgain] = useState(false);
   const [copied, setCopied] = useState(false);
   const [working, setWorking] = useState(false);
   const [nudge, setNudge] = useState(false);
   const [link, linkBox, linkBusy] = useLinker({
-    onLinked: async (r) => { await onChanged(); onTransfer?.(r); onClose(); }, // 전출 요청이 나갔거나 그 자리에서 옮겨졌으면 안내 창
+    onLinked: async (r, name) => {
+      await onChanged(); onTransfer?.(r);
+      if (r.concurrentUntil) onDone?.(t('roster.link.done_concurrent', { 이름: name, 기한: r.concurrentUntil })); // 문구-예외: 문구 변수 이름
+      onClose();
+    }, // 전출 요청이 나갔거나 그 자리에서 옮겨졌으면 안내 창
     onError,
   });
   if (!line) return null;
@@ -112,10 +118,12 @@ export function LinkModal({ line, base, onClose, onChanged, onTemp, onError, onT
           </Stack>
         )}
         {tab === 'id' && (
-          <form onSubmit={(e) => { e.preventDefault(); link(`${base}/${line.id}/link`, { loginId: loginId.trim() }, line.name); }}>
+          <form onSubmit={(e) => { e.preventDefault(); link(`${base}/${line.id}/link`, { loginId: loginId.trim(), ...(conc ? { concurrent: true, ...(until ? { until } : {}) } : {}) }, line.name); }}>
             <Stack gap="xs">
               <Text size="sm" c="dimmed">{t('roster.link.id_hint')}</Text>
               <TextInput label={t('roster.link.id_label')} value={loginId} onChange={(e) => setLoginId(e.currentTarget.value)} required />
+              <Checkbox label={t('roster.link.concurrent')} description={t('roster.link.concurrent_hint')} checked={conc} onChange={(e) => setConc(e.currentTarget.checked)} />
+              {conc && <TextInput type="date" label={t('roster.link.until_label')} description={t('roster.link.until_hint')} value={until} onChange={(e) => setUntil(e.currentTarget.value)} />}
               <Button type="submit" loading={busy} disabled={!loginId.trim()}>{t('roster.link.id_submit')}</Button>
             </Stack>
           </form>
@@ -186,5 +194,34 @@ export function UnlinkedBox({ base, items, rows, onChanged, onError }) {
         )}
       </Modal>
     </>
+  );
+}
+
+// 겸임 줄의 「기한 바꾸기」 창 — PUT /:mid/concurrent { until } → { ok, membershipId, concurrentUntil }
+export function ConcurrentUntilModal({ line, base, onClose, onChanged, onDone, onError }) {
+  const [until, setUntil] = useState(line?.concurrentUntil ?? '');
+  const [busy, setBusy] = useState(false);
+  if (!line) return null;
+  const titleV = { 이름: line.name }; // 문구-예외: 문구 변수 이름
+  const save = async () => {
+    setBusy(true);
+    try {
+      const r = await api('PUT', `${base}/${line.id}/concurrent`, { until });
+      await onChanged();
+      onDone?.(t('roster.concurrent_ui.done', { 이름: line.name, 기한: r.concurrentUntil })); // 문구-예외: 문구 변수 이름
+      onClose();
+    } catch (e) { onError(e.message); onClose(); } finally { setBusy(false); }
+  };
+  return (
+    <Modal opened onClose={() => !busy && onClose()} title={t('roster.concurrent_ui.title', titleV)} centered>
+      <Stack>
+        <Text size="sm">{t('roster.concurrent_ui.lead')}</Text>
+        <TextInput type="date" label={t('roster.concurrent_ui.label')} value={until} onChange={(e) => setUntil(e.currentTarget.value)} />
+        <Group justify="flex-end">
+          <Button variant="default" disabled={busy} onClick={onClose}>{t('roster.concurrent_ui.cancel')}</Button>
+          <Button loading={busy} disabled={!until} onClick={save}>{t('roster.concurrent_ui.save')}</Button>
+        </Group>
+      </Stack>
+    </Modal>
   );
 }
