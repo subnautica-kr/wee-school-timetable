@@ -172,7 +172,7 @@ export function rosterRouter(pool) {
     const text = hit.length === 1
       ? t('roster.notice.vacated', { 이름: hit[0].name ?? '', 상태, 담임, 수업 })
       : t('roster.notice.vacated_many', { 명: hit.length, 담임, 수업 });
-    return (await notify(pool, { orgId, kind: 'roster_vacated', text })).id;
+    return (await notify(pool, { orgId, kind: 'roster_vacated', text, link: 'tab:school:vacant' })).id;
   };
   const lineOf = async (db, orgId, mid) => (await db.query(
     `SELECT id, user_id, role, status AS m_status, name FROM membership

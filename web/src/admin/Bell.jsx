@@ -55,7 +55,7 @@ export default function Bell({ onGoTab, onGoMe, onOpenBoard }) {
           )}
           {items.length === 0 && !isNew && <Text size="sm" c="dimmed">{t('notify.panel.news_empty')}</Text>}
           {items.map((n) => (
-            <UnstyledButton key={n.id} onClick={() => { readOne(n); const m = /^board:(\d+)$/.exec(n.link || ''); if (m && onOpenBoard) { setOpen(false); onOpenBoard(Number(m[1])); } }} data-read={n.read ? '1' : '0'}>
+            <UnstyledButton key={n.id} onClick={() => { readOne(n); const m = /^board:(\d+)$/.exec(n.link || ''); if (m && onOpenBoard) { setOpen(false); onOpenBoard(Number(m[1])); return; } const g = /^tab:(\w+)(?::(\w+))?$/.exec(n.link || ''); if (g && onGoTab) { setOpen(false); onGoTab(g[1], g[2]); } }} data-read={n.read ? '1' : '0'}>
               <Text size="sm" fw={n.read ? 400 : 700} c={n.read ? 'dimmed' : undefined}>{n.text}</Text>
               <Text size="xs" c="dimmed">{when(n.createdAt)}</Text>
             </UnstyledButton>
