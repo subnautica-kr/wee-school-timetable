@@ -501,7 +501,7 @@ export function solve(prep, { seed = 1, strategy = 0, deadline = Date.now() + 30
   for (const e of extra) cells.push({ classroom_id: classes[e.c].id, weekday: e.d + 1, period: e.p, subject_id: e.s, membership_id: null, special_room_id: null });
   const unplaced = queue.flatMap((L) => L.cs.map((c) => ({ classroom_id: classes[c].id, subject_id: L.s, membership_id: L.line.membership_id ?? null, ...(L.sec != null ? { second_membership_id: L.sec } : {}), hours: L.span, ...(L.cs.length > 1 ? { combined: true } : {}) })));
   const warnings = [...(prep.warnings || []), ...unplaced.filter((u) => u.hours > 1).map((u) => ({ rule: 'block_unplaced', classroom_id: u.classroom_id, subject_id: u.subject_id, hours: u.hours }))]; // 연강을 못 놓음 — 막지 않고 알린다
-  for (const L of queue) if (L.alt) warnings.push({ rule: 'room_pool_full', classroom_id: classes[L.c].id, subject_id: L.s, hours: L.span }); // 같은 종류 특별실이 다 차서 못 놓음 — 알리고 생성은 계속
+  for (const L of queue) if (L.alt || L.rs?.length) warnings.push({ rule: 'room_pool_full', classroom_id: classes[L.c].id, subject_id: L.s, hours: L.span }); // 방이 걸린 수업을 못 놓음(후보 방 수와 상관없이) — 알리고 생성은 계속
   return { cells, unplaced, warnings, hard: unplaced.reduce((a, u) => a + u.hours, 0), rr, iter };
 }
 

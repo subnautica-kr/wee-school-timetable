@@ -8,6 +8,7 @@ import { makeLoadTemplate, parseLoadRows } from '../export/loadsImport.js';
 import { readTable } from '../export/import.js';
 import { t } from '../../shared/text/index.js';
 import { teachersOf } from '../../shared/cellTeachers.js';
+import { MEMBER_STATUS, ROLE } from '../../shared/codes.js';
 
 // 시수표. 거부하지 않는다 — 덜 채운 줄(교사·교과·시수가 빈 줄)도 그대로 보관하고 목록으로 알린다.
 // 반 칸이 비면(classroom_id NULL) 「전체 마스터」: 모든 반에 적용된다.
@@ -72,6 +73,31 @@ export function roomWarnings(row, d = row) {
   return out;
 }
 
+// 재직 아닌 소속(전출·휴직·퇴직) — 이름·상태를 딴 칸으로 내려 준다. 기존 teachers 목록(재직만)은 그대로 둔다.
+export async function inactiveMembers(db, orgId) {
+  return (await db.query(
+    `SELECT m.id, m.name, m.status FROM membership m WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.status <> $2 AND m.role <> $3 ORDER BY m.name`,
+    [orgId, MEMBER_STATUS.ACTIVE, ROLE.SYSADMIN],
+  )).rows;
+}
+
+// 담당 빈 담임·수업 — 담당 소속이 재직이 아닌 줄(이름·상태 함께)
+export async function vacantOf(db, orgId, termId) {
+  const homerooms = (await db.query(
+    `SELECT c.id AS classroom_id, c.grade, c.class_no, m.id AS membership_id, m.name, m.status FROM classroom c JOIN membership m ON m.id = c.homeroom_membership_id AND m.org_id = c.org_id
+     WHERE c.org_id = $1 AND c.term_id = $2 AND c.deleted_at IS NULL AND m.deleted_at IS NULL AND m.status <> $3 ORDER BY c.grade, c.class_no`,
+    [orgId, termId, MEMBER_STATUS.ACTIVE],
+  )).rows;
+  const loads = (await db.query(
+    `SELECT l.id AS load_id, l.classroom_id, c.grade, c.class_no, l.subject_id, s.name AS subject_name, l.weekly_hours, m.id AS membership_id, m.name, m.status
+     FROM teaching_load l JOIN membership m ON m.id = l.membership_id AND m.org_id = l.org_id
+     LEFT JOIN classroom c ON c.id = l.classroom_id LEFT JOIN subject s ON s.id = l.subject_id
+     WHERE l.org_id = $1 AND l.term_id = $2 AND l.deleted_at IS NULL AND m.deleted_at IS NULL AND m.status <> $3 ORDER BY c.grade, c.class_no, l.id`,
+    [orgId, termId, MEMBER_STATUS.ACTIVE],
+  )).rows;
+  return { homerooms, loads, count: loads.length };
+}
+
 export function loadsRouter(pool) {
   const r = express.Router({ mergeParams: true });
   const view = requireOrgAction('timetable.view');
@@ -99,11 +125,17 @@ export function loadsRouter(pool) {
     const miss = missingTeachers(teachers, lines);
     const grouped = miss.length ? [{ rule: 'load_missing_teacher', detail: { count: miss.length, people: miss.map((x) => x.detail) } }] : [];
     const alerts = applyLevels(levels, grouped);
-    return { term: t, lines: lines.map((l) => ({ ...l, incomplete: isIncomplete(l) })), alerts };
+    const v = await vacantOf(pool, req.orgId, t.id);
+    return { term: t, lines: lines.map((l) => ({ ...l, incomplete: isIncomplete(l) })), alerts, vacant: { count: v.count, homerooms: v.homerooms.length }, inactive_teachers: await inactiveMembers(pool, req.orgId) }; // 담당 빈 n건 · 재직 아닌 소속(이름·상태)
   }
 
   r.get('/loads', view, async (req, res, next) => {
     try { res.json(await snapshot(req)); } catch (e) { next(e); }
+  });
+
+  // 담당 빈 담임·수업 목록(재직 아닌 담당)
+  r.get('/loads/vacant', view, async (req, res, next) => {
+    try { const term = await currentTerm(pool, req.orgId); res.json({ term, ...(await vacantOf(pool, req.orgId, term.id)) }); } catch (e) { next(e); }
   });
 
   // 반마다 펼친 모습(마스터 적용). 이후 격자·자동 생성이 읽는다.

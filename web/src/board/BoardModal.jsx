@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Badge, Button, Checkbox, Collapse, Group, Modal, Radio, Select, Stack, Tabs, Text, TextInput, Textarea, UnstyledButton } from '@mantine/core';
+import { Alert, Badge, Button, Checkbox, Collapse, FileButton, Group, Modal, Radio, Select, Stack, Tabs, Text, TextInput, Textarea, UnstyledButton } from '@mantine/core';
 import { api } from '../api.js';
 import { t } from '../T.jsx';
 import { LABELS, makeValueName } from '../../../shared/text/index.js';
@@ -16,6 +16,32 @@ const stageName = (v) => valueName('board_post.stage', v);
 const when = (s) => new Date(s).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 // 서버 거절은 {error} 가 이미 사람이 읽을 문장이다
 const countText = (key, n) => t(key, { 개수: n }); // 문구-예외: 문구 변수 이름
+// 첨부 — 고르는 순간 거른다(서버도 같은 기준으로 다시 거른다)
+const ATTACH_EXT = ['png', 'jpg', 'jpeg', 'xlsx', 'hwpx', 'pdf', 'txt'];
+const ATTACH_MAX = 10 * 1024 * 1024;
+const ATTACH_COUNT = 5;
+const SHRINK_OVER = 1.5 * 1024 * 1024; // 이보다 큰 그림은 줄여서 올린다
+const mbText = (n) => `${(n / 1048576).toFixed(1)}MB`;
+const extOf = (name) => (name.split('.').pop() || '').toLowerCase();
+
+// 큰 그림은 가로세로 1600 안으로 줄여 jpg 로 다시 만든다(줄인 쪽이 더 작을 때만)
+async function shrinkImage(file) {
+  const ext = extOf(file.name);
+  if (!['png', 'jpg', 'jpeg'].includes(ext) || file.size <= SHRINK_OVER) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * k);
+    c.height = Math.round(bmp.height * k);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.82));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+  } catch { return file; }
+}
+
+const linkedText = (n) => t('board.errlog.post_linked', { 번호: n }); // 문구-예외: 문구 변수 이름
 const msg = (e) => e?.message || t('board.err.bad_input');
 
 function List({ onOpen }) {
@@ -62,16 +88,30 @@ function List({ onOpen }) {
   );
 }
 
-function Write({ onDone }) {
-  const [kind, setKind] = useState('');
+function Write({ onDone, prefill }) {
+  const [kind, setKind] = useState(prefill?.errorReportId ? 'bug' : '');
   const [vis, setVis] = useState(null); // 기본값 없음 — 꼭 고르게
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState(prefill?.title || '');
   const [body, setBody] = useState('');
   const [sendCtx, setSendCtx] = useState(true);
   const [ctxOpen, setCtxOpen] = useState(false);
   const [similar, setSimilar] = useState([]);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [files, setFiles] = useState([]);
+  const [doneId, setDoneId] = useState(null);
+  const pick = async (picked) => {
+    const next = [...files];
+    for (const f0 of picked) {
+      if (next.length >= ATTACH_COUNT) { setErr(t('board.err.attach_too_many', { 개수: ATTACH_COUNT })); break; } // 문구-예외: 문구 변수 이름
+      if (!ATTACH_EXT.includes(extOf(f0.name))) { setErr(t('board.err.attach_bad_type')); continue; }
+      const f = await shrinkImage(f0);
+      if (f.size > ATTACH_MAX) { setErr(t('board.err.attach_too_big', { 크기: mbText(f.size) })); continue; } // 문구-예외: 문구 변수 이름
+      setErr('');
+      next.push(f);
+    }
+    setFiles(next);
+  };
   useEffect(() => {
     if (title.trim().length < 2) { setSimilar([]); return undefined; }
     const id = setTimeout(() => api('GET', `/board/similar?title=${encodeURIComponent(title.trim())}`).then((r) => setSimilar(r.items || [])).catch(() => setSimilar([])), 400);
@@ -84,7 +124,14 @@ function Write({ onDone }) {
     if (!title.trim()) return setErr(t('board.write.need_title'));
     if (!body.trim()) return setErr(t('board.write.need_body'));
     setBusy(true);
-    try { const r = await api('POST', '/board/posts', { kind, visibility: vis, title: title.trim(), body: body.trim(), context }); onDone(r.id); } catch (e) { setErr(msg(e)); } finally { setBusy(false); }
+    try {
+      const r = await api('POST', '/board/posts', { kind, visibility: vis, title: title.trim(), body: body.trim(), context, ...(prefill?.errorReportId ? { errorReportId: prefill.errorReportId } : {}) });
+      const failed = [];
+      for (const f of files) {
+        try { await api('POST', `/board/posts/${r.id}/attachments?name=${encodeURIComponent(f.name)}`, f); } catch (e) { failed.push(t('board.write.attach_failed', { 이름: f.name, 사유: msg(e) })); } // 문구-예외: 문구 변수 이름
+      }
+      if (failed.length) { setDoneId(r.id); setErr(failed.join(' ')); } else onDone(r.id);
+    } catch (e) { setErr(msg(e)); } finally { setBusy(false); }
     return undefined;
   };
   return (
@@ -112,9 +159,21 @@ function Write({ onDone }) {
         </Group>
         <Collapse in={ctxOpen}><Text size="xs" c="dimmed">{t('board.write.context_text')}</Text></Collapse>
       </Stack>
-      <Text size="xs" c="dimmed">{t('board.write.attach_later')}</Text>
-      {err && <Alert color="red">{err}</Alert>}
-      <Group><Button onClick={submit} loading={busy}>{t('board.write.submit')}</Button></Group>
+      {prefill?.errorReportId && <Text size="xs" c="dimmed">{linkedText(prefill.errorReportId)}</Text>}
+      <Stack gap={4}>
+        <Group gap="xs">
+          <FileButton onChange={pick} multiple accept=".png,.jpg,.jpeg,.xlsx,.hwpx,.pdf,.txt">{(p) => <Button variant="default" size="compact-sm" disabled={!!doneId} {...p} data-testid="board-attach-btn">{t('board.write.attach_add')}</Button>}</FileButton>
+          <Text size="xs" c="dimmed">{t('board.write.attach_hint')}</Text>
+        </Group>
+        {files.map((f, i) => (
+          <Group key={`${f.name}-${i}`} gap="xs" data-testid="board-attach-item">
+            <Text size="sm">{f.name} ({mbText(f.size)})</Text>
+            {!doneId && <Button variant="subtle" size="compact-xs" onClick={() => setFiles(files.filter((_, j) => j !== i))}>{t('board.write.attach_remove')}</Button>}
+          </Group>
+        ))}
+      </Stack>
+      {err && <Alert color="red" style={{ whiteSpace: 'pre-wrap' }}>{err}</Alert>}
+      <Group>{doneId ? <Button onClick={() => onDone(doneId)}>{t('board.list.open')}</Button> : <Button onClick={submit} loading={busy}>{t('board.write.submit')}</Button>}</Group>
     </Stack>
   );
 }
@@ -128,7 +187,7 @@ function Detail({ id, onBack }) {
   useEffect(() => { load(); }, [load]);
   const act = (method, path, body) => api(method, `/board/posts/${id}${path}`, body).then(() => { setErr(''); return load(); }).catch((e) => setErr(msg(e)));
   if (!d) return <Stack><Button variant="subtle" onClick={onBack} w="fit-content">{t('board.detail.back')}</Button>{err ? <Alert color="red">{err}</Alert> : <Text size="sm" c="dimmed">{t('board.detail.loading')}</Text>}</Stack>;
-  const { post, comments } = d;
+  const { post, comments, attachments = [] } = d;
   return (
     <Stack gap="sm" data-testid="board-detail">
       <Button variant="subtle" onClick={onBack} w="fit-content">{t('board.detail.back')}</Button>
@@ -136,6 +195,14 @@ function Detail({ id, onBack }) {
       <Text fw={700}>{post.title}</Text>
       <Text size="xs" c="dimmed">{t('board.detail.school')} {post.school}{post.mine ? ` · ${t('board.detail.mine')}` : ''} · {when(post.createdAt)}</Text>
       <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{post.body}</Text>
+      {attachments.length > 0 && (
+        <Stack gap={2} data-testid="board-attachments">
+          <Text size="sm" fw={700}>{t('board.detail.attachments')}</Text>
+          {attachments.map((a) => (a.purged
+            ? <Text key={a.id} size="sm" c="dimmed">{a.fileName} · {t('board.detail.attach_purged')}</Text>
+            : <Text key={a.id} size="sm"><a href={`/api/board/attachments/${a.id}`} download>{a.fileName}</a> ({mbText(a.size)})</Text>))}
+        </Stack>
+      )}
       {post.groupCount > 0 && <Text size="xs" c="dimmed">{countText('board.detail.group_in', post.groupCount)}</Text>}
       {post.canStage && <Select label={t('board.detail.stage')} value={post.stage} onChange={(v) => v && act('PATCH', '/stage', { stage: v })} allowDeselect={false} data={STAGES.map((s) => ({ value: s, label: stageName(s) }))} w={200} />}
       {post.canManage && (
@@ -178,8 +245,8 @@ function Guide() {
 }
 
 // openId: 종 소식(board:<번호>)이 시킨 글 {id} — 바뀔 때마다 그 글을 연다
-export default function BoardModal({ opened, onClose, openId }) {
-  const [tab, setTab] = useState('list');
+export default function BoardModal({ opened, onClose, openId, prefill }) {
+  const [tab, setTab] = useState(prefill ? 'write' : 'list');
   const [postId, setPostId] = useState(null);
   const [rev, setRev] = useState(0);
   useEffect(() => { if (openId) { setPostId(openId.id); setTab('list'); } }, [openId]);
@@ -193,7 +260,7 @@ export default function BoardModal({ opened, onClose, openId }) {
           <Tabs.Tab value="guide">{t('board.win.tab_guide')}</Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="list">{postId ? <Detail id={postId} onBack={() => { setPostId(null); setRev((r) => r + 1); }} /> : <List key={rev} onOpen={setPostId} />}</Tabs.Panel>
-        <Tabs.Panel value="write"><Write onDone={open} /></Tabs.Panel>
+        <Tabs.Panel value="write"><Write onDone={open} prefill={prefill} /></Tabs.Panel>
         <Tabs.Panel value="guide"><Guide /></Tabs.Panel>
       </Tabs>
     </Modal>

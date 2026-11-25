@@ -67,11 +67,13 @@ export function findOverlaps(cells, ctx = {}) {
         const classes = new Set(cur.map((x) => x.c.classroom_id));
         // 특별실 정원 합: 같은 시각 같은 방 반들의 학생 수 합(capCount='classes' 면 반 수) > 정원. 복식 묶음·한 반만 쓸 때도 본다
         const cap = key === 'special_room_id' && !isMixed ? roomCap[cur[0].c[key]] : null;
+        let inCap = false; // 정원 안에서 한 방에 여러 반이 든 것은 room_overlap 이 아니다(정원 초과는 아래 room_capacity 가 센다 · NULL·0 = 1)
         if (cap != null) {
           const n = capCount === 'classes' ? classes.size : [...classes].reduce((a, id) => a + (Number(studentOf[id]) || 0), 0);
+          inCap = cap > 0 && n <= cap && classes.size <= cap;
           if (n > cap) found.push({ rule: 'room_capacity', cells: cur.map((x) => x.c), weekday: cur[0].c.weekday, period: Math.min(...cur.map((x) => x.c.period)), special_room_id: cur[0].c[key], classroom_ids: [...classes], detail: `특별실 정원 초과 — ${capCount === 'classes' ? `${n}개 반` : `학생 ${n}명`} > 정원 ${cap} (${cur[0].c.weekday}요일 ${[...new Set(cur.map((x) => x.c.period))].sort((a, b) => a - b).join('·')}교시)` });
         }
-        if (classes.size < 2 || isCombined(cur.map((x) => x.c))) return;
+        if (classes.size < 2 || inCap || isCombined(cur.map((x) => x.c))) return;
         if (isMixed && !(cur.some((x) => timeOf(x.c)) && cur.some((x) => !timeOf(x.c)))) return;
         const first = cur[0].c;
         const second = cur.some((x) => String(x.c[key]) !== String(v));

@@ -28,7 +28,7 @@ import { backupRouter } from './routes/backup.js';
 import { trashRouter } from './routes/trash.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { meRouter } from './routes/me.js';
-import { boardRouter } from './routes/board.js';
+import { boardRouter, recordServerError } from './routes/board.js';
 import { preCompressed } from './precompressed.js';
 
 const PgStore = connectPgSimple(session);
@@ -160,9 +160,12 @@ export function createApp(pool, opts = {}) {
 
   // 오류 — 스택 트레이스는 응답에 내지 않는다
   // eslint-disable-next-line no-unused-vars
-  app.use((err, req, res, next) => {
+  // 500 은 오류 기록에 남기고(서버에서 가린다) 기록 번호를 응답에 싣는다
+  app.use(async (err, req, res, next) => {
     console.error(err);
-    res.status(err.status && err.status < 500 ? err.status : 500).json({ error: '처리하지 못했습니다' });
+    const status = err.status && err.status < 500 ? err.status : 500;
+    const reportId = status === 500 ? await recordServerError(pool, req, err) : null;
+    res.status(status).json({ error: '처리하지 못했습니다', ...(reportId ? { reportId } : {}) });
   });
   return app;
 }
