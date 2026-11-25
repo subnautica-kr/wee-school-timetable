@@ -25,6 +25,7 @@ import { bookingRouter } from './routes/booking.js';
 import { exportRouter } from './routes/export.js';
 import { backupRouter } from './routes/backup.js';
 import { trashRouter } from './routes/trash.js';
+import { boardRouter } from './routes/board.js';
 import { preCompressed } from './precompressed.js';
 
 const PgStore = connectPgSimple(session);
@@ -95,6 +96,7 @@ export function createApp(pool, opts = {}) {
 
   app.use('/api/auth', authRouter(pool, opts));
   app.use('/api/admin', adminRouter(pool));
+  app.use('/api/board', boardRouter(pool));
   // 보관 학기의 시간표는 읽기만(데이터 보존). 고치기 요청은 409.
   app.use('/api/orgs/:orgId/timetables/:tid', async (req, res, next) => {
     if (req.method === 'GET' || req.method === 'HEAD' || !/^\d+$/.test(req.params.tid) || !/^\d+$/.test(req.params.orgId)) return next();
