@@ -6,6 +6,7 @@ export const ACTION_LABEL = {
   'org.backup': '학교 자료 내려받기', 'org.concurrent-add': '겸임 추가', 'org.create': '기관 만듦', 'org.first-admin': '첫 관리자 만듦', 'org.switch': '기관 전환', 'org.update': '기관 고침', 'password.change': '비밀번호 바꿈',
   'room_lock.create': '특별실 잠금', 'room_lock.delete': '특별실 잠금 풂',
   'roster.excel': '명단 엑셀 반영', 'roster.excel-undo': '명단 엑셀 되돌림', 'link': '계정 연결', 'unlink': '계정 연결 해제', // 문구-예외: 감사 이름표 표 자체(F2 · 1320b·1301b 새 동작)
+  'school-setup.school': '학교 기본 엑셀 반영', 'school-setup.rooms': '특별실 엑셀 반영', 'school-setup.roster': '명단 엑셀 반영(자료 넣기)', 'school-setup.loads': '시수표 엑셀 반영', 'school-setup.pins': '고정·금지 엑셀 반영', 'school-setup.undo': '자료 넣기 되돌림', // 문구-예외: 감사 이름표 표 자체(T-1308)
   'roster.create': '명단 추가', 'roster.concurrent-add': '겸임 데려옴', 'roster.import': '명단 가져옴', 'roster.lock': '계정 잠금', 'roster.reset-password': '비밀번호 초기화', 'roster.unlock': '계정 잠금 풂', 'roster.update': '명단 고침',
   'school.quick_start': '빠른 시작(반·교시 한 번에 만듦)', 'small-school.save': '작은 학교 설정 저장', 'soft-weights.save': '권장 규칙 설정 저장',
   'substitute.assign': '보결 지정', 'substitute.cancel': '보결 취소', 'substitute.create': '보결 올림', 'substitute.release': '보결 풂', 'substitute.take': '보결 맡음',

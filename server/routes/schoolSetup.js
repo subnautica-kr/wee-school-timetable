@@ -21,11 +21,11 @@ import { t } from '../../shared/text/index.js';
 //   POST /school-setup/:step/apply          올린 파일 바로 저장. 못 읽은 줄이 있으면 409 needConfirm → ?partial=1 로 다시
 //   POST /school-setup/undo  { batchId }    방금 올린 것 되돌리기
 const STEPS = {
-  school: { spec: gradeSpec, action: 'school.manage' },
-  rooms: { spec: roomsSpec, action: 'school.manage' },
-  roster: { spec: rosterSpec, action: 'school.manage' },
-  loads: { spec: loadsSpec, action: 'timetable.edit' },
-  pins: { spec: pinsSpec, action: 'timetable.edit' },
+  school: { spec: gradeSpec, perm: 'school.manage' },
+  rooms: { spec: roomsSpec, perm: 'school.manage' },
+  roster: { spec: rosterSpec, perm: 'school.manage' },
+  loads: { spec: loadsSpec, perm: 'timetable.edit' },
+  pins: { spec: pinsSpec, perm: 'timetable.edit' },
 };
 const ITEM_LIMIT = 50; // 점검 항목은 종류마다 앞 50개만 싣고 건수는 전체로 센다
 
@@ -42,7 +42,7 @@ export function schoolSetupRouter(pool) {
     const st = Object.hasOwn(STEPS, req.params.step) ? STEPS[req.params.step] : null;
     if (!st) return nf(res);
     req.step = st;
-    return requireOrgAction(st.action)(req, res, next);
+    return requireOrgAction(st.perm)(req, res, next);
   };
   const lineCount = (plans) => new Set(plans.flatMap((p) => p.errors.map((e) => e.line))).size;
   const planOf = async (db, orgId, spec, buf) => {
