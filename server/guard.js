@@ -14,7 +14,8 @@ export function requireLogin(req, res, next) {
 export function requireOrgAction(action) {
   return (req, res, next) => {
     const orgId = String(req.params.orgId);
-    if (!req.session.userId || String(req.session.orgId) !== orgId) return res.status(404).json({ error: '없습니다' });
+    // 학교 없는 세션(orgId 비어 있음)은 역할이 무엇이든 학교 길목에 못 들어온다 — `/api/orgs/null/…` 도 막는다
+    if (!req.session.userId || req.session.orgId == null || String(req.session.orgId) !== orgId) return res.status(404).json({ error: '없습니다' });
     if (!can(req.session.role, action)) return res.status(404).json({ error: '없습니다' });
     if (req.session.mustChange) return res.status(403).json({ error: '비밀번호를 먼저 바꿔 주세요', mustChange: true });
     req.orgId = req.session.orgId; // 이후 쿼리는 URL 이 아니라 세션의 기관을 쓴다
