@@ -27,7 +27,7 @@ export function trashRouter(pool) {
       const { rows } = await pool.query(
         `SELECT b.id, b.kind, b.target_id, b.label, b.summary AS effects, b.created_at, b.restored_at, u.name AS created_by_name
            FROM delete_batch b LEFT JOIN app_user u ON u.id = b.created_by
-          WHERE b.org_id = $1 ORDER BY b.created_at DESC, b.id DESC LIMIT 200`,
+          WHERE b.org_id = $1 AND b.kind <> 'excel' ORDER BY b.created_at DESC, b.id DESC LIMIT 200`,
         [req.orgId],
       );
       res.json(rows);
