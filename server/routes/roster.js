@@ -2,7 +2,7 @@ import express from 'express';
 import { z } from 'zod';
 import ExcelJS from 'exceljs';
 import { requireOrgAction } from '../guard.js';
-import { createAccount, createLine, createUserOnly, releaseUnlinked, resetPassword, ID_RE } from '../accounts.js';
+import { createAccount, createLine, createUserOnly, releaseUnlinked, resetPassword, moveInFrom, moveOut, ID_RE } from '../accounts.js';
 import { issueInvite } from '../invite.js';
 import { getRuleLevels } from '../rules.js';
 import { currentTerm } from './school.js';
@@ -11,7 +11,7 @@ import { inTx, removeWithCascade } from '../cascade.js';
 import { EXCEL_SPECS, rosterSpec, applyPlans, makeWorkbook, markErrors, planSheet, readWorkbook, undoExcel } from '../export/import.js';
 import { fail } from '../fail.js';
 import { t, 값이름 } from '../../shared/text/index.js';
-import { MEMBER_STATUS, MEMBER_STATUS_LOGIN, ROLE, DORMANT_REASON, TRANSFER_STATUS, UNLINKED_REASON } from '../../shared/codes.js';
+import { MEMBER_STATUS, MEMBER_STATUS_LOGIN, ROLE, DORMANT_REASON, TRANSFER_STATUS, UNLINKED_REASON, INVITE_KIND } from '../../shared/codes.js';
 import { linkAccount, unlinkAccount, withTx } from '../link.js';
 import { notify } from '../notify.js';
 import { sameName, sameBirth, matchPerson } from '../match.js';
@@ -424,6 +424,189 @@ export function rosterRouter(pool) {
       if (!open) return nf(res);
       const out = await withTx(pool, (c) => releaseUnlinked(c, { orgId: req.orgId, userId: open.user_id, byUserId: req.session.userId }));
       if (out.error) return fail(res, 409, out.error);
+      res.json(out);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // ── 가입 승인(T-1322a) — 승인 대기(pending_approval) 건을 기관 관리자가 명단 줄에 잇는다 ──
+  // 계정 표와 명단 표는 한 SQL 에서 같이 읽지 않는다(name-source) — 계정 값·줄 값을 따로 읽어 맞춘다.
+  const birthText = (d) => (d ? new Date(d).toLocaleDateString('sv-SE').replaceAll('-', '') : '');
+  // 승인 대기 건 하나(거래 안에서 잠근다)
+  const pendingFor = async (db, orgId, uid) => {
+    const ok = idParam.safeParse(uid);
+    if (!ok.success) return null;
+    return (await db.query(
+      `SELECT id, user_id, membership_id, created_at FROM unlinked_account
+        WHERE org_id = $1 AND user_id = $2 AND reason = $3 AND resolved_at IS NULL AND expires_at > now()
+        ORDER BY id DESC LIMIT 1 FOR UPDATE`, [orgId, ok.data, UNLINKED_REASON.PENDING_APPROVAL])).rows[0];
+  };
+  const userRow = async (db, uid) =>
+    (await db.query(`SELECT id, login_id, name, birth_date, created_at FROM app_user WHERE id = $1 AND deleted_at IS NULL`, [uid])).rows[0];
+  // 계정마다 지금 소속 학교 이름(재직·휴직 줄) — Map(userId → [학교])
+  const orgsOf = async (db, ids) => {
+    const m = new Map(ids.map((x) => [Number(x), []]));
+    const rows = (await db.query(
+      `SELECT m.user_id, o.name FROM membership m JOIN org o ON o.id = m.org_id
+        WHERE m.user_id = ANY($1::bigint[]) AND m.deleted_at IS NULL AND m.status = ANY($2::text[]) AND m.role <> $3 ORDER BY m.id`,
+      [ids, MEMBER_STATUS_LOGIN, ROLE.SYSADMIN])).rows;
+    for (const x of rows) m.get(Number(x.user_id))?.push(x.name);
+    return m;
+  };
+  // 경고 둘 — 이름·생년월일 다름 / 같은 사람 계정이 또 있음(다른 계정마다 한 줄 · 다른 학교 계정 정보가 보이는 유일한 자리)
+  const approveWarnings = async (db, ln, user) => {
+    const m = await matchPerson(db, { name: ln.name, birthDate: ln.birth_date, userId: user.id });
+    const out = [];
+    if (m.check?.name === false) out.push({ code: 'name', text: t('roster.approve_warn.name', { 계정: user.name ?? '', 명단: ln.name ?? '' }) });
+    if (m.check?.birth === false) out.push({ code: 'birth', text: t('roster.approve_warn.birth', { 계정: birthText(user.birth_date), 명단: birthText(ln.birth_date) }) });
+    const others = m.candidates.filter((x) => x.userId !== Number(user.id));
+    if (others.length) {
+      const ids = others.map((x) => x.userId);
+      const births = new Map((await db.query(`SELECT id, birth_date FROM app_user WHERE id = ANY($1::bigint[])`, [ids])).rows.map((x) => [Number(x.id), x.birth_date]));
+      const orgs = await orgsOf(db, ids);
+      for (const o of others) {
+        const birthDate = birthText(births.get(o.userId)) || null;
+        const 학교 = orgs.get(o.userId) ?? [];
+        const vars = { 이름: o.name ?? '', 생년월일: birthDate ?? t('roster.approve.birth_unknown'), 학교: 학교.join(', '), 아이디: o.loginId };
+        out.push({
+          code: 'other', text: t(학교.length ? 'roster.approve_warn.other' : 'roster.approve_warn.other_none', vars),
+          accounts: [{ userId: o.userId, loginId: o.loginId, birthDate, orgs: 학교 }],
+        });
+      }
+    }
+    return out;
+  };
+  // 이 계정이 쓴 마지막 초대 코드의 종류(전입·겸임) — 대기 건은 코드를 쓴 뒤 생긴다
+  const codeKind = async (db, orgId, uid) =>
+    (await db.query(
+      `SELECT kind FROM invite_code WHERE org_id = $1 AND used_by = $2 AND used_at IS NOT NULL ORDER BY used_at DESC, id DESC LIMIT 1`, [orgId, uid])).rows[0]?.kind ?? null;
+  const orgName = async (db, orgId) => (await db.query(`SELECT name FROM org WHERE id = $1`, [orgId])).rows[0]?.name ?? '';
+  const pickBody = z.object({ membershipId: idParam.optional(), force: z.boolean().optional() });
+
+  // 한 건 승인(거래 안). 반환 { ok, ... } | { error, status, extra }
+  const approveOne = async (c, { orgId, uid, membershipId, force, byUserId }) => {
+    const p = await pendingFor(c, orgId, uid);
+    if (!p) return { error: 'roster.err.pending_not_found', status: 404 };
+    const ln = await lineFor(membershipId ?? p.membership_id, orgId, c);
+    if (!ln) return { error: 'roster.err.line_not_found', status: 404 };
+    if (ln.user_id != null) return { error: 'roster.err.line_taken_pick', status: 409, vars: { 이름: ln.name ?? '' }, extra: { lineTaken: true, membershipId: Number(ln.id) } };
+    const user = await userRow(c, p.user_id);
+    if (!user) return { error: 'roster.err.pending_not_found', status: 404 };
+    if (!force) {
+      const warnings = await approveWarnings(c, ln, user);
+      if (warnings.length) return { error: 'roster.err.need_confirm', status: 409, extra: { needConfirm: true, warnings } };
+    }
+    if (Number(ln.id) !== Number(p.membership_id)) await c.query(`UPDATE unlinked_account SET membership_id = $2 WHERE id = $1`, [p.id, ln.id]);
+    const from = (await codeKind(c, orgId, user.id)) === INVITE_KIND.MOVE_IN ? await moveInFrom(c, user.id, orgId) : [];
+    await moveOut(c, { from, orgId, membershipId: ln.id, byUserId });
+    const l = await linkAccount(c, { membershipId: ln.id, userId: user.id, byUserId });
+    if (l.error) return { ...l, status: 409 };
+    await audit(c, { orgId, userId: byUserId, action: 'roster.approve', table: 'membership', rowId: ln.id, after: { userId: Number(user.id), moved: from.map((x) => Number(x.id)) } });
+    const 학교 = await orgName(c, orgId);
+    await notify(c, { userId: user.id, orgId, kind: 'roster.approve', text: t('roster.approve_notice.in', { 학교 }) });
+    await killSessions(c, user.id); // 새 소속·권한은 다시 로그인해야 선다
+    return { ok: true, userId: Number(user.id), membershipId: Number(ln.id), loginId: user.login_id, moved: from.length > 0 };
+  };
+  const sendFail = (res, out) => fail(res, out.status ?? 409, out.error, out.vars, out.extra);
+
+  // 승인 대기 목록 — [{ userId, account:{loginId,name,birthDate,signedUpAt,orgs}, line:{id,name,birthDate,duty,taken}, kind, moveFrom:[학교], birthOnly, warnings }]
+  r.get('/approvals', async (req, res, next) => {
+    try {
+      const rows = (await pool.query(
+        `SELECT user_id, membership_id FROM unlinked_account
+          WHERE org_id = $1 AND reason = $2 AND resolved_at IS NULL AND expires_at > now() ORDER BY created_at, id`,
+        [req.orgId, UNLINKED_REASON.PENDING_APPROVAL])).rows;
+      const ids = rows.map((x) => Number(x.user_id));
+      const orgs = await orgsOf(pool, ids);
+      const out = [];
+      for (const x of rows) {
+        const user = await userRow(pool, x.user_id);
+        const ln = (await pool.query(`SELECT id, user_id, name, birth_date, duty FROM membership WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL`, [x.membership_id, req.orgId])).rows[0];
+        if (!user || !ln) continue;
+        const kind = await codeKind(pool, req.orgId, user.id);
+        const moveFrom = kind === INVITE_KIND.MOVE_IN ? (await moveInFrom(pool, user.id, req.orgId)).map((f) => f.org_name) : [];
+        out.push({
+          userId: Number(user.id),
+          account: { loginId: user.login_id, name: user.name, birthDate: birthText(user.birth_date) || null, signedUpAt: user.created_at, orgs: orgs.get(Number(user.id)) ?? [] },
+          line: { id: Number(ln.id), name: ln.name, birthDate: birthText(ln.birth_date) || null, duty: ln.duty, taken: ln.user_id != null },
+          kind, moveFrom, birthOnly: !ln.birth_date,
+          warnings: ln.user_id != null ? [] : await approveWarnings(pool, ln, user),
+        });
+      }
+      res.json(out);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // 한 건 승인 — { membershipId?(줄 다시 고름), force? } → { ok, userId, membershipId, loginId, moved }
+  //   409 line_taken_pick { lineTaken, membershipId } · 409 need_confirm { needConfirm, warnings }
+  r.post('/approvals/:uid/approve', async (req, res, next) => {
+    try {
+      const p = pickBody.safeParse(req.body ?? {});
+      if (!p.success) return fail(res, 400, 'roster.err.bad_input');
+      const out = await withTx(pool, (c) => approveOne(c, { orgId: req.orgId, uid: req.params.uid, ...p.data, byUserId: req.session.userId }));
+      if (out.error) return out.status === 404 ? nf(res) : sendFail(res, out);
+      res.json(out);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // 일괄 승인 — { userIds:[...] } → { done:[{userId,membershipId,moved}], skipped:[{userId, code, text}] } · 경고·줄 찬 건은 빠진다
+  r.post('/approvals/bulk', async (req, res, next) => {
+    try {
+      const p = z.object({ userIds: z.array(idParam).min(1).max(CEIL.rosterRows) }).safeParse(req.body);
+      if (!p.success) return fail(res, 400, 'roster.err.bad_input');
+      const done = [];
+      const skipped = [];
+      for (const uid of [...new Set(p.data.userIds)]) {
+        const out = await withTx(pool, (c) => approveOne(c, { orgId: req.orgId, uid, force: false, byUserId: req.session.userId }));
+        if (out.error) {
+          const code = out.error.replace(/^roster\.err\./, '');
+          const text = out.extra?.warnings ? out.extra.warnings.map((w) => w.text).join(' ') : t(out.error, out.vars);
+          skipped.push({ userId: uid, code, text });
+        } else done.push({ userId: out.userId, membershipId: out.membershipId, moved: out.moved });
+      }
+      res.json({ done, skipped });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // 「이 계정으로 연결」 — { userId(같은 사람으로 보이는 다른 계정), membershipId? } → { ok, userId, membershipId, loginId }
+  //   그 계정이 다른 학교에 재직 중이면 409 other_active(전출 요청은 1322b①) · 원래 대기 건은 닫힌다(새 중복 계정은 7일 정리가 맡음)
+  r.post('/approvals/:uid/use-other', async (req, res, next) => {
+    try {
+      if (!(await pendingFor(pool, req.orgId, req.params.uid))) return nf(res); // 남의 기관 건이면 입력 검사보다 먼저 404
+      const p = z.object({ userId: idParam, membershipId: idParam.optional() }).safeParse(req.body);
+      if (!p.success) return fail(res, 400, 'roster.err.bad_input');
+      const by = req.session.userId;
+      const out = await withTx(pool, async (c) => {
+        const pend = await pendingFor(c, req.orgId, req.params.uid);
+        if (!pend) return { error: 'roster.err.pending_not_found', status: 404 };
+        const ln = await lineFor(p.data.membershipId ?? pend.membership_id, req.orgId, c);
+        if (!ln) return { error: 'roster.err.line_not_found', status: 404 };
+        if (ln.user_id != null) return { error: 'roster.err.line_taken_pick', status: 409, vars: { 이름: ln.name ?? '' }, extra: { lineTaken: true, membershipId: Number(ln.id) } };
+        // 학교 경계의 유일한 예외 — 대조 후보(같은 이름·생년월일 안 다름)에 든 계정만 받는다
+        const m = await matchPerson(c, { name: ln.name, birthDate: ln.birth_date, userId: pend.user_id });
+        const other = m.candidates.find((x) => x.userId === p.data.userId && x.userId !== Number(pend.user_id));
+        if (!other) return { error: 'roster.err.other_not_found', status: 409 };
+        const active = (await c.query(
+          `SELECT 1 FROM membership WHERE user_id = $1 AND org_id <> $2 AND deleted_at IS NULL AND status = ANY($3::text[]) AND role <> $4 LIMIT 1`,
+          [other.userId, req.orgId, MEMBER_STATUS_LOGIN, ROLE.SYSADMIN])).rows[0];
+        if (active) return { error: 'roster.err.other_active', status: 409 };
+        const l = await linkAccount(c, { membershipId: ln.id, userId: other.userId, byUserId: by });
+        if (l.error) return { ...l, status: 409 };
+        await c.query(`UPDATE unlinked_account SET resolved_at = now() WHERE id = $1 AND resolved_at IS NULL`, [pend.id]);
+        await audit(c, { orgId: req.orgId, userId: by, action: 'roster.approve-other', table: 'membership', rowId: ln.id, after: { userId: other.userId, pendingUserId: Number(pend.user_id) } });
+        const 학교 = await orgName(c, req.orgId);
+        await notify(c, { userId: other.userId, orgId: req.orgId, kind: 'roster.approve', text: t('roster.approve_notice.in', { 학교 }) });
+        await killSessions(c, other.userId);
+        return { ok: true, userId: other.userId, membershipId: Number(ln.id), loginId: other.loginId };
+      });
+      if (out.error) return out.status === 404 ? nf(res) : sendFail(res, out);
       res.json(out);
     } catch (e) {
       next(e);

@@ -2,9 +2,12 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Alert, Button, Container, Group, Select, Tabs, Text, Title } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { api } from '../api.js';
+import { t } from '../T.jsx';
 import ChangePassword from './ChangePassword.jsx';
 import AdminOrgs from './AdminOrgs.jsx';
 import Roster from './Roster.jsx';
+import Approve from './Approve.jsx';
+import MyOrg from './MyOrg.jsx';
 import AuditLog from './AuditLog.jsx';
 import SchoolPage from '../school/SchoolPage.jsx';
 import Grid from '../grid/Grid.jsx';
@@ -56,10 +59,15 @@ function Panel({ v, hint, children }) {
 }
 
 // 기관 화면 탭 — 폰도 위쪽 탭 한 줄을 그대로 두고 가로로 밀어 넘긴다. 메뉴를 보여 주는 곳은 이 한 줄뿐(「내 정보」 안 나머지 메뉴 카드는 같은 메뉴를 두 번 보여 줘서 뺐다, T-1215)
-function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, setOv, jump }) {
+function OrgTabs({ user, admin, P, phone, tabProps, onUser, onLogout, features, loaded, setOv, jump }) {
   const edit = user.role !== '보기만';
+  const [waiting, setWaiting] = useState(0); // 가입 승인을 기다리는 건 수 — 0 이면 탭을 숨긴다
+  const countWaiting = () => { if (admin) api('GET', `/orgs/${user.orgId}/roster/approvals`).then((a) => setWaiting(a.length)).catch(() => {}); };
+  useEffect(countWaiting, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const onSession = () => api('GET', '/auth/session').then((r) => r.user && onUser(r.user));
   const all = [
     { v: 'roster', label: '명단', hint: '교직원 명단을 올리고 고치는 곳입니다. 처음 한 번 먼저 채웁니다', show: admin },
+    { v: 'approve', label: t('roster.approve.tab'), hint: t('roster.approve.lead'), show: admin && waiting > 0 },
     { v: 'school', label: '학교 기본', hint: admin ? '학급·교과·시수표 같은 학교 자료를 넣는 곳입니다. 시간표를 만들기 전에 채웁니다' : '우리 학교 학급·교과 자료를 확인하는 곳입니다', show: true },
     { v: 'grid', label: admin ? '시간표 격자' : '시간표', phoneLabel: '시간표', hint: admin ? '만든 시간표를 칸마다 확인하고 직접 고칩니다' : '학교 전체 시간표를 둘러봅니다', show: true },
     { v: 'gen', label: '자동 생성', hint: '명단과 시수표를 다 넣었으면 시간표 시안을 만들어 줍니다', show: admin },
@@ -78,7 +86,8 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
   const [focus, setFocus] = useState(null); // 자동 생성 점검 줄의 「빈 것 목록 보기」 → 학교 자료 시수표의 빈 것 목록
   const [want, setTab] = useState(admin && !phone ? 'roster' : admin ? 'grid' : 'mine');
   const items = visibleMenus(all, features); // 권한(show) AND 기관 스위치. 「기능 고르기」는 MENU_FEATURES 에 없어 늘 보인다
-  useEffect(() => { if (jump) setTab(jump.v); }, [jump]); // 도움말 같은 바깥 화면이 시키는 탭 이동
+  useEffect(() => { if (jump) { setTab(jump.v); if (jump.v === 'approve') countWaiting(); } }, [jump]); // eslint-disable-line react-hooks/exhaustive-deps
+  // // 도움말 같은 바깥 화면이 시키는 탭 이동
   const tryGo = (v, text) => { setTab(v); setTip(text); setTimeout(() => setTip(null), 12000); };
   const on = (v) => items.some((i) => i.v === v);
   const H = Object.fromEntries(items.map((i) => [i.v, i.hint]));
@@ -103,6 +112,7 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
         {bar.map((i) => <Tabs.Tab key={i.v} value={i.v}>{phone && i.phoneLabel ? i.phoneLabel : i.label}{i.v === 'me' && isNew && <span data-testid="new-dot" aria-label="새 기능이 있어요" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--mantine-color-red-6)', marginLeft: 6 }} />}</Tabs.Tab>)}
       </Tabs.List>
       {on('roster') && <Panel v="roster" hint={H.roster}><Roster orgId={user.orgId} /></Panel>}
+      {on('approve') && <Panel v="approve" hint={H.approve}><Approve orgId={user.orgId} onCount={setWaiting} /></Panel>}
       {on('school') && <Panel v="school" hint={H.school}><SchoolPage user={user} goTab={setTab} focus={focus} /></Panel>}
       <Panel v="grid" hint={H.grid}><Grid P={P} admin={admin} /></Panel>
       {on('gen') && <Panel v="gen"><AutoGen P={P} onGoVacant={() => { setFocus(Date.now()); setTab('school'); }} /></Panel>}
@@ -117,6 +127,7 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
       <Panel v="feat" hint={H.feat}><FeatureBoard P={P} admin={admin} onChanged={setOv} onTry={tryGo} /></Panel>
       <Panel v="me" hint={H.me}>
         <ChangePassword onDone={onUser} />
+        <MyOrg onSession={onSession} onLogout={onLogout} />
         {admin && <BackupButton orgId={user.orgId} />}
         {admin && <TrashBox orgId={user.orgId} />}
         <VersionHistory isNew={isNew} onSeen={markSeen} />
@@ -173,7 +184,7 @@ export default function Screens({ user, onLogout, onUser }) {
     // 기관관리자 · 교직원 · 보기만 — 메뉴 하나로 묶는다(명단은 관리자만)
     const admin = user.role === '기관관리자';
     const P = `/orgs/${user.orgId}`;
-    body = <OrgTabs key={rev} user={user} admin={admin} P={P} phone={phone} tabProps={tabProps} onUser={onUser} features={features} loaded={!!ov || base.loaded} setOv={setOv} jump={jump} />;
+    body = <OrgTabs key={rev} user={user} admin={admin} P={P} phone={phone} tabProps={tabProps} onUser={onUser} onLogout={onLogout} features={features} loaded={!!ov || base.loaded} setOv={setOv} jump={jump} />;
   }
   return (
     <Container size="lg" py="md" className="app-body">

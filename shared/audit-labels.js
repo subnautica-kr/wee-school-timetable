@@ -11,6 +11,7 @@ export const ACTION_LABEL = {
   'signup.create': '가입', 'signup.pending': '코드 연결 승인 대기로 넘어감', 'signup.fix': '코드 연결 때 본인 정보 고침', 'signup.move': '학교 옮김(앞 학교 줄 전출)', // 문구-예외: 감사 이름표 표 자체
   'admin.lock-user': '계정 잠금(총괄관리자)', 'admin.unlock-user': '계정 잠금 풂(총괄관리자)', 'admin.captcha': '가입 캡차 스위치 바꿈', 'admin.contact': '총괄관리자 연락처 고침', // 문구-예외: 감사 이름표 표 자체(T-1326)
   'roster.invite': '초대 코드 발급', 'roster.create-account': '계정 만들어 연결', 'roster.unlinked-release': '연결 안 된 계정 내보냄', // 문구-예외: 감사 이름표 표 자체
+  'roster.approve': '가입 승인', 'roster.approve-other': '같은 사람 다른 계정으로 연결', 'me.leave': '이 학교에서 나가기', // 문구-예외: 감사 이름표 표 자체
   'school-setup.school': '학교 기본 엑셀 반영', 'school-setup.rooms': '특별실 엑셀 반영', 'school-setup.roster': '명단 엑셀 반영(자료 넣기)', 'school-setup.loads': '시수표 엑셀 반영', 'school-setup.pins': '고정·금지 엑셀 반영', 'school-setup.undo': '자료 넣기 되돌림', // 문구-예외: 감사 이름표 표 자체(T-1308)
   'roster.create': '명단 추가', 'roster.concurrent-add': '겸임 데려옴', 'roster.import': '명단 가져옴', 'roster.lock': '계정 잠금', 'roster.reset-password': '비밀번호 초기화', 'roster.unlock': '계정 잠금 풂', 'roster.update': '명단 고침',
   'school.quick_start': '빠른 시작(반·교시 한 번에 만듦)', 'small-school.save': '작은 학교 설정 저장', 'soft-weights.save': '권장 규칙 설정 저장',

@@ -12,13 +12,13 @@ import { t } from '../../shared/text/index.js';
 import { requireLogin } from '../guard.js';
 import { passwordProblem } from '../passwords.js';
 import { audit } from '../audit.js';
-import { ARGON, ID_RE } from '../accounts.js';
+import { ARGON, ID_RE, moveInFrom, moveOut } from '../accounts.js';
 import { matchPerson } from '../match.js';
 import { notify } from '../notify.js';
 import { registerCleanup } from '../cleanup.js';
 import { linkAccount, withTx } from '../link.js';
 import { startSession, sessionBody, noOrgKind } from './auth.js';
-import { MEMBER_STATUS, MEMBER_STATUS_LOGIN, ORG_STATUS, ROLE } from '../../shared/codes.js';
+import { INVITE_KIND, ORG_STATUS } from '../../shared/codes.js';
 
 export const PENDING_DAYS = 7;
 const AVG_WINDOW_DAYS = 90;
@@ -69,14 +69,7 @@ export async function applyCode(pool, userId, { code, confirm, name, birthDate, 
   return withTx(pool, async (c) => {
     const cd = await findLiveCode(c, code, true);
     if (!cd) return { error: 'signup.err.code_invalid' };
-    const from = cd.kind === 'move_in'
-      ? (await c.query(
-        `SELECT m.id, o.name AS org_name FROM membership m JOIN org o ON o.id = m.org_id
-          WHERE m.user_id = $1 AND m.org_id <> $2 AND m.deleted_at IS NULL AND NOT m.is_concurrent
-            AND m.status = ANY($3::text[]) AND m.role <> $4`,
-        [userId, cd.org_id, MEMBER_STATUS_LOGIN, ROLE.SYSADMIN],
-      )).rows
-      : [];
+    const from = cd.kind === INVITE_KIND.MOVE_IN ? await moveInFrom(c, userId, cd.org_id) : [];
     if (from.length && !moveOk) return { move: { from: from[0].org_name, to: cd.org_name } };
 
     if (confirm === 'fix' && name && birthDate) {
@@ -102,10 +95,7 @@ export async function applyCode(pool, userId, { code, confirm, name, birthDate, 
       await audit(c, { orgId: cd.org_id, userId, action: 'signup.pending', table: 'membership', rowId: cd.membership_id });
       return { pending: { orgId: Number(cd.org_id) } };
     }
-    if (from.length) {
-      await c.query(`UPDATE membership SET status = $2 WHERE id = ANY($1::bigint[])`, [from.map((x) => x.id), MEMBER_STATUS.TRANSFERRED]);
-      await audit(c, { orgId: cd.org_id, userId, action: 'signup.move', table: 'membership', rowId: cd.membership_id, after: { from: from.map((x) => Number(x.id)) } });
-    }
+    await moveOut(c, { from, orgId: cd.org_id, membershipId: cd.membership_id, byUserId: userId });
     const r = await linkAccount(c, { membershipId: cd.membership_id, userId, byUserId: userId });
     if (r.error) return r;
     return { linked: { orgId: Number(cd.org_id), role: cd.line_role, moved: from.length > 0 } };

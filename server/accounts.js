@@ -1,6 +1,6 @@
 import argon2 from 'argon2';
 import { tempPassword } from './passwords.js';
-import { ROLE, DORMANT_REASON, UNLINKED_REASON } from '../shared/codes.js';
+import { ROLE, DORMANT_REASON, UNLINKED_REASON, MEMBER_STATUS, MEMBER_STATUS_LOGIN } from '../shared/codes.js';
 import { audit, killSessions } from './audit.js';
 import { registerCleanup } from './cleanup.js';
 import { withTx } from './link.js';
@@ -93,6 +93,23 @@ export async function releaseUnlinked(db, { orgId, userId, byUserId = null, auto
     orgId, userId: byUserId, action: 'roster.unlinked-release', table: 'app_user', rowId: userId, after: { auto, dormant: !other },
   });
   return { ok: true, userId: Number(userId), dormant: !other };
+}
+
+// 전입 코드로 온 사람의 「앞 학교 줄」 — 다른 학교의 본 소속(겸임 아님) · 로그인 되는 재직 상태 · 총괄관리자 줄 빼고.
+// 코드 입력(signup.js applyCode)과 가입 승인(roster.js · T-1322a 「승인 순간 전출」)이 같이 쓴다. 반환 [{ id, org_name }]
+export async function moveInFrom(db, userId, orgId) {
+  return (await db.query(
+    `SELECT m.id, o.name AS org_name FROM membership m JOIN org o ON o.id = m.org_id
+      WHERE m.user_id = $1 AND m.org_id <> $2 AND m.deleted_at IS NULL AND NOT m.is_concurrent
+        AND m.status = ANY($3::text[]) AND m.role <> $4`,
+    [userId, orgId, MEMBER_STATUS_LOGIN, ROLE.SYSADMIN],
+  )).rows;
+}
+// 앞 학교 줄을 「전출」로 — 연결(linkAccount)보다 먼저 불러야 새 학교 줄이 본 소속이 된다
+export async function moveOut(db, { from, orgId, membershipId, byUserId }) {
+  if (!from.length) return;
+  await db.query(`UPDATE membership SET status = $2 WHERE id = ANY($1::bigint[])`, [from.map((x) => x.id), MEMBER_STATUS.TRANSFERRED]);
+  await audit(db, { orgId, userId: byUserId, action: 'signup.move', table: 'membership', rowId: membershipId, after: { from: from.map((x) => Number(x.id)) } });
 }
 
 // 30일 동안 묶음에 그대로 있으면 저절로 내보내고 학교 소식 한 줄(기관 관리자에게 정리 의무를 지우지 않는다)
