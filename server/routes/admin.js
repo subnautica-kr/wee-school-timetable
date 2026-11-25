@@ -7,6 +7,8 @@ import { auditPage } from './audit-log.js';
 import { audit, killSessions, killOrgSessions } from '../audit.js';
 import { inTx, httpError } from '../cascade.js';
 import { adminAccounts } from '../adminAccounts.js';
+import { isLastAdmin, forced } from '../lastAdmin.js';
+import { t } from '../../shared/text/index.js';
 
 // 시스템 관리자(상위 기관) — 기관 관리 넷뿐: 기관 등록 · 기관 상태 · 첫 관리자 만들기 · 관리자 비밀번호 초기화.
 // 기관 안 데이터(시간표·보결·근태·명단)는 못 본다. 명단·시간표 경로는 하나도 없고,
@@ -190,9 +192,12 @@ export function adminRouter(pool) {
   });
 
   // ── 지우기(T-1213) ──
-  const fail = (res, next, e) => (e.expose ? res.status(e.status).json({ error: e.message }) : next(e)); // httpError 의 한국어 이유를 그대로 낸다
-  const adminCount = async (db, orgId, exceptUser) => (await db.query(
-    `SELECT count(*)::int AS n FROM membership WHERE org_id = $1 AND role = '기관관리자' AND status = '사용' AND deleted_at IS NULL AND user_id <> $2`, [orgId, exceptUser])).rows[0].n;
+  const fail = (res, next, e) => (e.expose ? res.status(e.status).json({ error: e.message, ...e.extra }) : next(e)); // httpError 의 한국어 이유를 그대로 낸다
+  // 마지막 기관 관리자 경고(409 needConfirm · force 로 진행) — 계정 번호로 가리키는 길
+  const lastWarn = (orgName) => {
+    const text = t('admin.err.last_admin_warn', { 학교: orgName });
+    return Object.assign(httpError(409, text), { extra: { needConfirm: true, lastAdmin: true, warnings: [{ text }] } });
+  };
 
   // 기관 삭제 미리보기 — 영향 수만(내용은 안 냄)
   r.get('/orgs/:id/delete-preview', async (req, res, next) => {
@@ -237,7 +242,7 @@ export function adminRouter(pool) {
     } catch (e) { fail(res, next, e); }
   });
 
-  // 계정 삭제 — 확인 글자 = 로그인 ID. 자기 자신·마지막 시스템 관리자·어느 기관의 마지막 관리자는 409.
+  // 계정 삭제 — 확인 글자 = 로그인 ID. 자기 자신·마지막 시스템 관리자·어느 기관의 마지막 관리자는 409 needConfirm(force 로 진행).
   r.delete('/users/:uid', async (req, res, next) => {
     try {
       const uid = idParam.safeParse(req.params.uid);
@@ -250,7 +255,7 @@ export function adminRouter(pool) {
         const isSys = (await c.query(`SELECT 1 FROM membership WHERE user_id = $1 AND role = '시스템관리자' AND deleted_at IS NULL LIMIT 1`, [u.id])).rows[0];
         if (isSys && !(await c.query(`SELECT 1 FROM membership WHERE user_id <> $1 AND role = '시스템관리자' AND status = '사용' AND deleted_at IS NULL LIMIT 1`, [u.id])).rows[0]) throw httpError(409, '마지막 시스템 관리자는 지울 수 없습니다');
         const mine = (await c.query(`SELECT o.id, o.name FROM membership m JOIN org o ON o.id = m.org_id AND o.deleted_at IS NULL WHERE m.user_id = $1 AND m.role = '기관관리자' AND m.deleted_at IS NULL`, [u.id])).rows;
-        for (const o of mine) if (!(await adminCount(c, o.id, u.id))) throw httpError(409, `「${o.name}」의 마지막 관리자라 지울 수 없습니다. 먼저 다른 관리자를 세워 주세요`);
+        if (!forced(req)) for (const o of mine) if (await isLastAdmin(c, o.id, { userId: u.id })) throw lastWarn(o.name);
         if (p.data.confirm !== u.login_id) throw httpError(400, `확인 글자가 다릅니다. 아이디 「${u.login_id}」를 그대로 입력해 주세요`);
         await dropUsers(c, [u.id]);
         await audit(c, { ...who(req), action: 'admin.delete-user', table: 'app_user', rowId: u.id, before: { loginId: u.login_id } });
@@ -261,16 +266,16 @@ export function adminRouter(pool) {
     } catch (e) { fail(res, next, e); }
   });
 
-  // 기관 관리자 떼기 — 계정·소속은 남기고 역할만 교직원으로. 마지막 관리자면 409.
+  // 기관 관리자 떼기 — 계정·소속은 남기고 역할만 교직원으로. 마지막 관리자면 409 needConfirm(force 로 진행).
   r.post('/orgs/:id/admins/:uid/demote', async (req, res, next) => {
     try {
       const id = idParam.safeParse(req.params.id);
       const uid = idParam.safeParse(req.params.uid);
       if (!id.success || !uid.success) return nf(res);
       const ok = await inTx(pool, async (c) => {
-        const m = (await c.query(`SELECT m.id FROM membership m JOIN org o ON o.id = m.org_id AND o.deleted_at IS NULL WHERE m.org_id = $1 AND m.user_id = $2 AND m.role = '기관관리자' AND m.deleted_at IS NULL FOR UPDATE OF m`, [id.data, uid.data])).rows[0];
+        const m = (await c.query(`SELECT m.id, o.name AS org_name FROM membership m JOIN org o ON o.id = m.org_id AND o.deleted_at IS NULL WHERE m.org_id = $1 AND m.user_id = $2 AND m.role = '기관관리자' AND m.deleted_at IS NULL FOR UPDATE OF m`, [id.data, uid.data])).rows[0];
         if (!m) return false;
-        if (!(await adminCount(c, id.data, uid.data))) throw httpError(409, '마지막 관리자는 뗄 수 없습니다. 먼저 다른 관리자를 세워 주세요');
+        if (!forced(req) && (await isLastAdmin(c, id.data, { userId: uid.data }))) throw lastWarn(m.org_name);
         await c.query(`UPDATE membership SET role = '교직원' WHERE id = $1`, [m.id]);
         await killSessions(c, uid.data);
         await audit(c, { ...who(req), action: 'admin.demote', table: 'membership', rowId: m.id, before: { role: '기관관리자' }, after: { orgId: id.data, role: '교직원' } });

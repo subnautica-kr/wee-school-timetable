@@ -16,6 +16,7 @@ import { MEMBER_STATUS, MEMBER_STATUS_LOGIN, ROLE, DORMANT_REASON, TRANSFER_STAT
 import { linkAccount, unlinkAccount, withTx } from '../link.js';
 import { homeOrgOf, requestTransfer } from './transfer.js';
 import { notify } from '../notify.js';
+import { isLastAdmin, forced } from '../lastAdmin.js';
 import { sameName, sameBirth, matchPerson } from '../match.js';
 import { CEIL, dutyFromText, dutyKnown, dutyWarnings, limitWarnings, loadConfig, withWarnings } from '../orgConfig.js';
 
@@ -74,8 +75,8 @@ export function rosterRouter(pool) {
   const sharedElsewhere = async (t) =>
     !!(await pool.query(`SELECT 1 FROM membership WHERE user_id = $1 AND org_id <> $2 AND deleted_at IS NULL LIMIT 1`, [t.user_id, t.org_id ?? 0])).rows[0];
 
-  const activeAdmins = async (orgId) =>
-    (await pool.query(`SELECT count(*)::int AS n FROM membership WHERE org_id = $1 AND role = '기관관리자' AND status = '사용' AND deleted_at IS NULL`, [orgId])).rows[0].n;
+  // 마지막 기관 관리자 경고(409 needConfirm · 되물은 뒤 force 로 진행) — 문구는 roster.err.last_admin_warn
+  const lastWarn = () => ({ needConfirm: true, lastAdmin: true, warnings: [{ text: t('roster.err.last_admin_warn') }] });
 
   r.get('/', async (req, res, next) => {
     try {
@@ -138,7 +139,7 @@ export function rosterRouter(pool) {
   // 재직 상태 바꾸기 한 줄(거래 안 client c) — 퇴직이면 공용 해제(휴면 사유 retired), 로그인 안 되는 상태면 세션 끊기.
   // 맡은 담임·수업 수를 같이 돌려준다(자료는 안 지운다 — 시수표·시간표 칸은 그 줄을 그대로 가리킨다).
   // 반환 { id, name, before, status, homeroom, classes, unlinked } 또는 { error: '<문구 키>' }
-  const changeStatus = async (c, orgId, byUserId, ln, status) => {
+  const changeStatus = async (c, orgId, byUserId, ln, status, force = false) => {
     const base = { id: Number(ln.id), name: ln.name, before: ln.m_status, status };
     const counts = async () => {
       const h = (await c.query(`SELECT count(*)::int AS n FROM classroom WHERE org_id = $1 AND homeroom_membership_id = $2 AND deleted_at IS NULL`, [orgId, ln.id])).rows[0].n;
@@ -148,10 +149,7 @@ export function rosterRouter(pool) {
     if (ln.m_status === status) return { ...base, ...(await counts()), unlinked: false, same: true };
     const off = !MEMBER_STATUS_LOGIN.includes(status);
     if (off && ln.user_id != null && Number(ln.user_id) === Number(byUserId)) return { error: 'roster.err.self_status' };
-    if (off && ln.role === ROLE.ORG_ADMIN && ln.m_status === MEMBER_STATUS.ACTIVE) {
-      const n = (await c.query(`SELECT count(*)::int AS n FROM membership WHERE org_id = $1 AND role = $2 AND status = $3 AND deleted_at IS NULL`, [orgId, ROLE.ORG_ADMIN, MEMBER_STATUS.ACTIVE])).rows[0].n;
-      if (n <= 1) return { error: 'roster.err.last_admin' };
-    }
+    if (off && ln.role === ROLE.ORG_ADMIN && !force && (await isLastAdmin(c, orgId, { mid: ln.id }))) return { error: 'roster.err.last_admin_warn', extra: lastWarn() };
     await c.query(`UPDATE membership SET status = $2 WHERE id = $1`, [ln.id, status]);
     let unlinked = false;
     if (status === MEMBER_STATUS.RETIRED && ln.user_id != null) {
@@ -191,7 +189,7 @@ export function rosterRouter(pool) {
       if (d.loginId && !ln.user_id) return nf(res); // 계정 없는 줄엔 아이디가 없다(연결은 따로 하는 일)
       const touchesAccount = !!(d.loginId && d.loginId !== ln.login_id);
       if (touchesAccount && (await sharedElsewhere(ln))) return res.status(409).json({ error: SHARED });
-      if (losesAdmin && (await activeAdmins(req.orgId)) <= 1) return res.status(409).json({ error: '마지막 관리자는 뗄 수 없습니다. 먼저 다른 관리자를 올려 주세요' });
+      if (losesAdmin && !forced(req) && (await isLastAdmin(pool, req.orgId, { mid: ln.id }))) return fail(res, 409, 'roster.err.last_admin_warn', undefined, lastWarn());
       if (d.loginId && d.loginId.toLowerCase() !== ln.login_id.toLowerCase()) {
         const dup = await pool.query(`SELECT 1 FROM app_user WHERE lower(login_id) = lower($1)`, [d.loginId]);
         if (dup.rows[0]) return res.status(409).json({ error: '이미 쓰고 있는 ID 입니다' });
@@ -201,9 +199,9 @@ export function rosterRouter(pool) {
       if (status !== undefined) {
         st = await withTx(pool, async (c) => {
           const cur = await lineOf(c, req.orgId, ln.id);
-          return cur ? changeStatus(c, req.orgId, req.session.userId, cur, status) : { error: 'roster.err.line_not_found' };
+          return cur ? changeStatus(c, req.orgId, req.session.userId, cur, status, forced(req)) : { error: 'roster.err.line_not_found' };
         });
-        if (st.error) return fail(res, 409, st.error);
+        if (st.error) return fail(res, 409, st.error, undefined, st.extra);
       }
       if (d.loginId && !st?.unlinked) await pool.query(`UPDATE app_user SET login_id = $2 WHERE id = $1`, [ln.user_id, d.loginId]);
       await pool.query(
@@ -229,9 +227,9 @@ export function rosterRouter(pool) {
       for (const id of [...new Set(p.data.ids)]) {
         const out = await withTx(pool, async (c) => {
           const cur = await lineOf(c, req.orgId, id);
-          return cur ? changeStatus(c, req.orgId, req.session.userId, cur, p.data.status) : { error: 'roster.err.line_not_found' };
+          return cur ? changeStatus(c, req.orgId, req.session.userId, cur, p.data.status, forced(req)) : { error: 'roster.err.line_not_found' };
         });
-        results.push(out.error ? { id, ok: false, code: out.error, error: t(out.error) } : { ok: true, ...out });
+        results.push(out.error ? { id, ok: false, code: out.error, error: t(out.error), ...out.extra } : { ok: true, ...out });
       }
       const done = results.filter((x) => x.ok);
       const notice = await noticeVacated(req.orgId, done);
@@ -251,7 +249,7 @@ export function rosterRouter(pool) {
       const t = await target(req);
       if (!t) return nf(res);
       if (t.user_id === req.session.userId) return res.status(409).json({ error: '내 소속은 뗄 수 없습니다' });
-      if (t.role === '기관관리자' && (await activeAdmins(req.orgId)) <= 1) return res.status(409).json({ error: '마지막 관리자는 뗄 수 없습니다' });
+      if (t.role === ROLE.ORG_ADMIN && !forced(req) && (await isLastAdmin(pool, req.orgId, { mid: t.id }))) return fail(res, 409, 'roster.err.last_admin_warn', undefined, lastWarn());
       const out = await inTx(pool, async (c) => {
         if (t.user_id != null) {
           const u = await unlinkAccount(c, { membershipId: t.id, byUserId: req.session.userId, reason: DORMANT_REASON.REMOVED, listUnlinked: true });
@@ -380,7 +378,7 @@ export function rosterRouter(pool) {
       if (!ln) return nf(res);
       if (ln.user_id == null) return fail(res, 409, 'roster.err.not_linked');
       if (Number(ln.user_id) === Number(req.session.userId)) return fail(res, 409, 'roster.err.self_unlink');
-      if (ln.role === ROLE.ORG_ADMIN && (await activeAdmins(req.orgId)) <= 1) return fail(res, 409, 'roster.err.last_admin_unlink');
+      if (ln.role === ROLE.ORG_ADMIN && !forced(req) && (await isLastAdmin(pool, req.orgId, { mid: ln.id }))) return fail(res, 409, 'roster.err.last_admin_warn', undefined, lastWarn());
       const u = await unlinkAccount(pool, { membershipId: ln.id, byUserId: req.session.userId, reason: DORMANT_REASON.REMOVED, listUnlinked: true });
       if (u.error) return fail(res, 409, u.error);
       res.json(u);
