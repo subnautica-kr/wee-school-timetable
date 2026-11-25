@@ -1,11 +1,6 @@
 // 시간표 → 출력용 표(시트). 세 출력(PDF·엑셀·HWPX)이 같은 시트를 읽는다.
 // 시트: { title, header: [칸...], rows: [[칸...]] } · 칸: { text, kind: null|'changche'|'specialist', shade: bool }
-import { DEFAULTS, loadConfig, periodsOf } from '../orgConfig.js';
-import { periodsOn } from '../../shared/periods.js';
-import { teachersOf, hasTeacher } from '../../shared/cellTeachers.js';
-
-// 요일·교시 수는 기관 설정(config.weekdays)과 학교 기본(period_config)에서 읽는다. d.weekdays 가 없으면 기본 요일.
-const daysOf = (d) => d.weekdays ?? DEFAULTS.weekdays;
+import { loadConfig } from '../orgConfig.js';
 
 export async function loadSheetData(pool, orgId, ttId) {
   const q = async (sql, p) => (await pool.query(sql, p)).rows;
@@ -23,71 +18,6 @@ export async function loadSheetData(pool, orgId, ttId) {
   };
 }
 
-const FALLBACK_PERIODS = 6; // 학교 기본에 교시 수가 하나도 없을 때만
-const maxPeriods = (cfg, grades) => Math.max(1, ...grades.map((g) => periodsOf(cfg, g, FALLBACK_PERIODS)));
-const className = (c) => `${c.grade}학년 ${c.class_no}반`;
-
-// 칸 하나의 글자·종류
-function cellView(c, ix, st, withTeacher = true, withClass = null) {
-  const sub = ix.subject.get(Number(c.subject_id));
-  const t = ix.teacher.get(Number(c.membership_id));
-  const room = ix.room.get(Number(c.special_room_id));
-  const lines = [sub ? sub.short_name || sub.name : ''];
-  if (withClass) lines.push(withClass);
-  // 교사 이름: 「이 칸의 교사들」 — 둘째 교사가 있으면 「첫째·둘째」, 없으면 지금과 같은 이름 하나
-  const names = teachersOf(c).map((x) => ix.teacher.get(Number(x))?.name).filter(Boolean);
-  if (withTeacher && names.length) lines.push(names.join('·'));
-  if (room) lines.push(room.name);
-  const isChangche = !!sub && [sub.name, sub.short_name].some((n) => n && st.changcheNames.includes(n));
-  const kind = isChangche ? 'changche' : t?.duty && t.duty !== '담임' ? 'specialist' : null;
-  const shade = !!room && st.shadeRoomKeywords.some((k) => room.name.includes(k));
-  return { text: lines.filter(Boolean).join('\n'), kind, shade };
-}
-
-function index(d) {
-  const by = (a) => new Map(a.map((x) => [Number(x.id), x])); // pg bigint 는 문자열 — 숫자로 맞춘다
-  return { subject: by(d.subjects), teacher: by(d.teachers), room: by(d.rooms), classroom: by(d.classrooms) };
-}
-
-// 반 하나의 시트
-export function classSheet(d, st, classroom) {
-  const ix = index(d);
-  const n = maxPeriods(d.periodConfig, [classroom.grade]);
-  const own = d.cells.filter((c) => Number(c.classroom_id) === Number(classroom.id));
-  const rows = [];
-  for (let p = 1; p <= n; p++) {
-    rows.push([{ text: `${p}교시` }, ...daysOf(d).map((_, i) => {
-      const c = own.find((x) => x.weekday === i + 1 && x.period === p);
-      if (c) return cellView(c, ix, st); // 교시 수 밖이어도 있는 칸은 그대로 찍는다(지우지 않음)
-      return { text: p > periodsOn(d.periodConfig, classroom.grade, i + 1, n) ? '—' : '' }; // 그날 수업 없는 교시(요일별 교시 수)
-    })]);
-  }
-  return { title: className(classroom), header: [{ text: '' }, ...daysOf(d).map((x) => ({ text: x }))], rows };
-}
-
-// 교사 하나의 시트
-export function teacherSheet(d, st, teacher) {
-  const ix = index(d);
-  const own = d.cells.filter((c) => hasTeacher(c, teacher.id));
-  const n = maxPeriods(d.periodConfig, d.classrooms.map((c) => c.grade).concat(1));
-  const rows = [];
-  for (let p = 1; p <= n; p++) {
-    rows.push([{ text: `${p}교시` }, ...daysOf(d).map((_, i) => {
-      const c = own.find((x) => x.weekday === i + 1 && x.period === p);
-      const cl = c && ix.classroom.get(Number(c.classroom_id));
-      return c ? cellView(c, ix, st, false, cl ? className(cl) : null) : { text: '' };
-    })]);
-  }
-  return { title: `${teacher.name} 선생님`, header: [{ text: '' }, ...daysOf(d).map((x) => ({ text: x }))], rows };
-}
-
-// view: 'class'(기본) | 'teacher'. classroomId·membershipId 로 하나만 고를 수 있다.
-export function buildSheets(d, st, { view = 'class', id = null } = {}) {
-  if (view === 'teacher') {
-    const list = d.teachers.filter((t) => d.cells.some((c) => hasTeacher(c, t.id)) && (!id || Number(t.id) === id));
-    return list.sort((a, b) => a.name.localeCompare(b.name, 'ko')).map((t) => teacherSheet(d, st, t));
-  }
-  return d.classrooms.filter((c) => !id || Number(c.id) === id).map((c) => classSheet(d, st, c));
-}
+export { buildSheets, classSheet, teacherSheet, roomSheet } from '../../shared/sheetCalc.js'; // 계산은 shared 한 곳 — 화면(자동 생성 결과)도 같은 함수
 
 export const sheetsTitle = (d) => `${d.tt.name}${d.tt.status === '확정' ? '' : ' (시안)'}`;

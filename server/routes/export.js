@@ -63,7 +63,7 @@ export function exportRouter(pool) {
     const d = await loadSheetData(pool, req.orgId, tid.data);
     if (!d) return notFound(res);
     const st = await loadSettings(pool, req.orgId);
-    const v = req.query.view === 'teacher' ? 'teacher' : 'class';
+    const v = ['teacher', 'room'].includes(req.query.view) ? req.query.view : 'class';
     const one = req.query.id ? id.safeParse(req.query.id) : null;
     if (one && !one.success) return res.status(400).json({ error: '입력을 확인해 주세요' });
     const title = sheetsTitle(d);
