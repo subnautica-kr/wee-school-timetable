@@ -56,7 +56,7 @@ export async function auditPage(pool, orgId, query) {
   for (const r of page) for (const i of idsIn(r.before, r.after)) want.add(i);
   const names = new Map();
   if (want.size) {
-    const m = await pool.query(`SELECT m.id, u.name FROM membership m JOIN app_user u ON u.id = m.user_id WHERE m.org_id = $1 AND m.id = ANY($2::bigint[])`, [orgId, [...want]]);
+    const m = await pool.query(`SELECT m.id, m.name FROM membership m WHERE m.org_id = $1 AND m.id = ANY($2::bigint[])`, [orgId, [...want]]);
     for (const x of m.rows) names.set(String(x.id), x.name);
   }
   const items = page.map((r) => ({ ...r, before: nameIds(clean(r.before), names), after: nameIds(clean(r.after), names) }));

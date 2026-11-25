@@ -41,9 +41,9 @@ export function rosterRouter(pool) {
   const target = async (req, db = pool) =>
     (
       await db.query(
-        `SELECT m.id, m.org_id, m.user_id, m.role, m.status AS m_status, u.login_id, u.name
-           FROM membership m JOIN app_user u ON u.id = m.user_id AND u.deleted_at IS NULL
-          WHERE m.id = $1 AND m.org_id = $2 AND m.deleted_at IS NULL AND m.role <> '시스템관리자'`,
+        `SELECT m.id, m.org_id, m.user_id, m.role, m.status AS m_status, u.login_id, m.name
+           FROM membership m LEFT JOIN app_user u ON u.id = m.user_id AND u.deleted_at IS NULL
+          WHERE m.id = $1 AND m.org_id = $2 AND m.deleted_at IS NULL AND m.role <> '시스템관리자' AND (m.user_id IS NULL OR u.id IS NOT NULL)`,
         [req.params.mid, req.orgId],
       )
     ).rows[0];
@@ -60,13 +60,13 @@ export function rosterRouter(pool) {
   r.get('/', async (req, res, next) => {
     try {
       const { rows } = await pool.query(
-        `SELECT m.id, u.name, u.login_id AS "loginId", m.role, m.duty, m.status AS "listStatus",
+        `SELECT m.id, m.name, u.login_id AS "loginId", m.role, m.duty, m.status AS "listStatus",
                 CASE WHEN u.status = '잠김' OR (u.locked_until IS NOT NULL AND u.locked_until > now()) THEN '잠김'
                      WHEN u.last_login_at IS NULL THEN '첫 로그인 전' ELSE '사용 중' END AS "state",
-                (u.status = '잠김') AS "manualLock", u.last_login_at AS "lastLogin"
-           FROM membership m JOIN app_user u ON u.id = m.user_id AND u.deleted_at IS NULL
-          WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.role <> '시스템관리자'
-          ORDER BY m.status, u.name, m.id`,
+                COALESCE(u.status = '잠김', FALSE) AS "manualLock", u.last_login_at AS "lastLogin"
+           FROM membership m LEFT JOIN app_user u ON u.id = m.user_id AND u.deleted_at IS NULL
+          WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.role <> '시스템관리자' AND (m.user_id IS NULL OR u.id IS NOT NULL)
+          ORDER BY m.status, m.name, m.id`,
         [req.orgId],
       );
       res.json(rows);
@@ -113,17 +113,20 @@ export function rosterRouter(pool) {
       if (!t) return nf(res);
       const d = p.data;
       const losesAdmin = t.role === '기관관리자' && ((d.role && d.role !== '기관관리자') || d.hidden === true);
-      const touchesAccount = (d.loginId && d.loginId !== t.login_id) || (d.name && d.name !== t.name);
+      // 이름은 줄 이름(학교가 적은 이름)이라 계정에 안 닿는다 — 계정에 닿는 건 아이디뿐
+      if (d.loginId && !t.user_id) return nf(res); // 계정 없는 줄엔 아이디가 없다(연결은 따로 하는 일)
+      const touchesAccount = !!(d.loginId && d.loginId !== t.login_id);
       if (touchesAccount && (await sharedElsewhere(t))) return res.status(409).json({ error: SHARED });
       if (losesAdmin && (await activeAdmins(req.orgId)) <= 1) return res.status(409).json({ error: '마지막 관리자는 뗄 수 없습니다. 먼저 다른 관리자를 올려 주세요' });
       if (d.loginId && d.loginId.toLowerCase() !== t.login_id.toLowerCase()) {
         const dup = await pool.query(`SELECT 1 FROM app_user WHERE lower(login_id) = lower($1)`, [d.loginId]);
         if (dup.rows[0]) return res.status(409).json({ error: '이미 쓰고 있는 ID 입니다' });
       }
-      if (d.name || d.loginId) await pool.query(`UPDATE app_user SET name = COALESCE($2, name), login_id = COALESCE($3, login_id) WHERE id = $1`, [t.user_id, d.name ?? null, d.loginId ?? null]);
+      if (d.loginId) await pool.query(`UPDATE app_user SET login_id = $2 WHERE id = $1`, [t.user_id, d.loginId]);
       await pool.query(
-        `UPDATE membership SET role = COALESCE($2, role), duty = CASE WHEN $3::boolean THEN $4 ELSE duty END, status = CASE WHEN $5::text IS NULL THEN status ELSE $5 END WHERE id = $1`,
-        [t.id, d.role ?? null, 'duty' in d, d.duty ?? null, d.hidden === undefined ? null : d.hidden ? '숨김' : '사용'],
+        `UPDATE membership SET role = COALESCE($2, role), duty = CASE WHEN $3::boolean THEN $4 ELSE duty END, status = CASE WHEN $5::text IS NULL THEN status ELSE $5 END,
+                name = COALESCE($6, name) WHERE id = $1`,
+        [t.id, d.role ?? null, 'duty' in d, d.duty ?? null, d.hidden === undefined ? null : d.hidden ? '숨김' : '사용', d.name || null],
       );
       if (d.role && d.role !== t.role && ROLES.indexOf(d.role) > ROLES.indexOf(t.role)) await killSessions(pool, t.user_id); // 역할이 내려가면 세션 끊기
       if (d.hidden) await killSessions(pool, t.user_id);
@@ -153,7 +156,7 @@ export function rosterRouter(pool) {
   r.post('/:mid/lock', async (req, res, next) => {
     try {
       const t = await target(req);
-      if (!t) return nf(res);
+      if (!t?.user_id) return nf(res); // 계정 없는 줄엔 잠글 계정이 없다
       if (t.user_id === req.session.userId) return res.status(409).json({ error: '내 계정은 잠글 수 없습니다' });
       if (await sharedElsewhere(t)) return res.status(409).json({ error: SHARED });
       if (t.role === '기관관리자' && (await activeAdmins(req.orgId)) <= 1) return res.status(409).json({ error: '마지막 관리자는 잠글 수 없습니다' });
@@ -168,7 +171,7 @@ export function rosterRouter(pool) {
   r.post('/:mid/unlock', async (req, res, next) => {
     try {
       const t = await target(req);
-      if (!t) return nf(res);
+      if (!t?.user_id) return nf(res);
       if (await sharedElsewhere(t)) return res.status(409).json({ error: SHARED });
       await pool.query(`UPDATE app_user SET status = '사용', failed_count = 0, locked_until = NULL WHERE id = $1`, [t.user_id]);
       await audit(pool, { ...me(req), action: 'roster.unlock', table: 'app_user', rowId: t.user_id });
@@ -182,7 +185,7 @@ export function rosterRouter(pool) {
   r.post('/:mid/reset-password', async (req, res, next) => {
     try {
       const t = await target(req);
-      if (!t) return nf(res);
+      if (!t?.user_id) return nf(res); // 계정 없는 줄엔 비밀번호가 없다
       if (t.user_id === req.session.userId) return res.status(409).json({ error: '내 비밀번호는 「내 정보」에서 바꿔 주세요' });
       if (await sharedElsewhere(t)) return res.status(409).json({ error: SHARED });
       const temp = await resetPassword(pool, t.user_id);

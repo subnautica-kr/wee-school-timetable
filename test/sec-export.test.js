@@ -21,6 +21,9 @@ test('내보내기', { skip: !HAS_DB && 'DB 없음' }, async (t) => {
   await q(`UPDATE special_room SET name = 'B실-표식' WHERE id = $1`, [B.room]);
   await q(`UPDATE app_user SET name = 'B교사-표식' WHERE id = $1`, [f.users.adminB.uid]);
   await q(`UPDATE app_user SET name = 'A교사-표식' WHERE id = $1`, [f.users.staffA.uid]);
+  // 이름은 줄에서 읽는다(T-1320a②) — 줄 이름도 같은 표식으로
+  await q(`UPDATE membership SET name = 'B교사-표식' WHERE id = $1`, [f.users.adminB.mid]);
+  await q(`UPDATE membership SET name = 'A교사-표식' WHERE id = $1`, [f.users.staffA.mid]);
   await q(`INSERT INTO cell (org_id, timetable_id, classroom_id, weekday, period, subject_id, membership_id) VALUES ($1,$2,$3,1,1,$4,$5)`, [f.orgA, A.tt, A.class, A.subject, f.users.staffA.mid]);
   await q(`INSERT INTO cell (org_id, timetable_id, classroom_id, weekday, period, subject_id, membership_id, special_room_id) VALUES ($1,$2,$3,1,2,$4,$5,$6)`, [f.orgA, A.tt, A.class, B.subject, f.users.adminB.mid, B.room]);
   // 암호화 사유·메모

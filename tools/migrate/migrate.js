@@ -16,7 +16,9 @@ export function stateFromBackup(b) {
   const inTerm = (rows) => live(rows).filter((r) => term && String(r.term_id) === String(term.id));
   const users = new Map(live(T.app_user).map((u) => [String(u.id), u]));
   return {
-    people: live(T.membership).filter((m) => m.role !== '시스템관리자' && users.has(String(m.user_id))).map((m) => ({ id: num(m.id), name: users.get(String(m.user_id)).name, loginId: users.get(String(m.user_id)).login_id })),
+    // 이름은 줄 이름(013~)을 먼저, 없으면(옛 백업) 계정 이름. 계정 없는 줄도 사람이다(아이디만 없다)
+    people: live(T.membership).filter((m) => m.role !== '시스템관리자' && (m.user_id == null ? m.name : users.has(String(m.user_id))))
+      .map((m) => { const u = users.get(String(m.user_id)); return { id: num(m.id), name: m.name ?? u?.name, loginId: u?.login_id ?? null }; }),
     classes: inTerm(T.classroom).map((c) => ({ id: num(c.id), grade: c.grade, class_no: c.class_no, student_count: c.student_count, homeroom: num(c.homeroom_membership_id) })),
     subjects: live(T.subject).map((s) => ({ id: num(s.id), name: s.name, short_name: s.short_name })),
     rooms: live(T.special_room).map((r) => ({ id: num(r.id), name: r.name })),
@@ -40,7 +42,7 @@ export function match(src, st, { createMissing = false, loginPrefix = '', final 
   for (const p of src.people) {
     let hit;
     if (src.kind === 'backup') {
-      const id = (loginPrefix + p.loginId).toLowerCase();
+      const id = (loginPrefix + (p.loginId || p.name)).toLowerCase(); // 계정 없는 줄은 넣을 때처럼 이름이 아이디
       hit = st.people.filter((x) => String(x.loginId).toLowerCase() === id);
     } else {
       hit = st.people.filter((x) => String(x.name).trim() === p.name);

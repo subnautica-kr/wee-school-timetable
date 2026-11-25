@@ -112,7 +112,7 @@ export function attendanceRouter(pool) {
     if (!p.success) return bad(res);
     const me = await myMembership(req);
     const { rows } = await pool.query(
-      `SELECT a.membership_id, a.hours::float8 AS hours, u.name FROM attendance a JOIN membership m ON m.id = a.membership_id JOIN app_user u ON u.id = m.user_id
+      `SELECT a.membership_id, a.hours::float8 AS hours, m.name FROM attendance a JOIN membership m ON m.id = a.membership_id
         WHERE a.org_id = $1 AND a.deleted_at IS NULL AND to_char(a.on_date,'YYYY-MM') = $2 AND ($3::boolean OR a.membership_id = $4)`,
       [req.orgId, p.data, isManager(req), me],
     );

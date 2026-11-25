@@ -119,9 +119,9 @@ export function adminRouter(pool) {
       const id = idParam.safeParse(req.params.id);
       if (!id.success) return nf(res);
       const { rows } = await pool.query(
-        `SELECT u.id AS "userId", u.name, u.login_id AS "loginId", u.status, u.must_change_password AS "mustChange"
-           FROM membership m JOIN app_user u ON u.id = m.user_id AND u.deleted_at IS NULL
-          WHERE m.org_id = $1 AND m.role = '기관관리자' AND m.deleted_at IS NULL ORDER BY u.id`,
+        `SELECT u.id AS "userId", m.name, u.login_id AS "loginId", u.status, u.must_change_password AS "mustChange"
+           FROM membership m LEFT JOIN app_user u ON u.id = m.user_id AND u.deleted_at IS NULL
+          WHERE m.org_id = $1 AND m.role = '기관관리자' AND m.deleted_at IS NULL AND (m.user_id IS NULL OR u.id IS NOT NULL) ORDER BY u.id NULLS LAST, m.id`,
         [id.data],
       );
       res.json(rows);

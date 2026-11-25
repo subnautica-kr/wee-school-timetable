@@ -14,7 +14,7 @@ export async function createAccount(db, { orgId, name, loginId, role, duty = nul
   if (found) {
     if (existing !== 'add' || found.deleted_at) return { error: '이미 쓰고 있는 ID 입니다' };
     userId = found.id;
-    const m = (await db.query(`SELECT 1 FROM membership WHERE user_id = $1 AND org_id = $2`, [userId, orgId])).rows[0];
+    const m = (await db.query(`SELECT 1 FROM membership WHERE user_id = $1 AND org_id = $2 AND deleted_at IS NULL`, [userId, orgId])).rows[0];
     if (m) return { error: '이 기관에 이미 소속된 사람입니다' };
   } else {
     temp = tempPassword();

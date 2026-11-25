@@ -38,11 +38,11 @@ export function substituteRouter(pool, opts = {}) {
   const isAdmin = (req) => can(req.session.role, 'substitute.force');
 
   const SEL = `SELECT s.id, to_char(s.on_date,'YYYY-MM-DD') AS on_date, s.period, s.classroom_id, c.grade, c.class_no, s.reason_kind, s.reason_enc,
-      s.status, s.all_day, s.grade_ab, s.absent_membership_id, au.name AS absent_name, s.taken_membership_id, tu.name AS taken_name, s.taken_outside_name
+      s.status, s.all_day, s.grade_ab, s.absent_membership_id, am.name AS absent_name, s.taken_membership_id, tm.name AS taken_name, s.taken_outside_name
     FROM substitute s
     LEFT JOIN classroom c ON c.id = s.classroom_id
-    JOIN membership am ON am.id = s.absent_membership_id JOIN app_user au ON au.id = am.user_id
-    LEFT JOIN membership tm ON tm.id = s.taken_membership_id LEFT JOIN app_user tu ON tu.id = tm.user_id`;
+    JOIN membership am ON am.id = s.absent_membership_id
+    LEFT JOIN membership tm ON tm.id = s.taken_membership_id`;
   // 사유 글은 관리자와 본인만 푼다 — 나머지에게는 열쇠 자체를 안 준다
   const present = (row, admin, myId) => {
     const { reason_enc, ...rest } = row;
@@ -68,8 +68,8 @@ export function substituteRouter(pool, opts = {}) {
     const N = (v) => (v == null ? v : Number(v));
     const cells = tt ? (await pool.query(`SELECT classroom_id, weekday, period, subject_id, membership_id, second_membership_id FROM cell WHERE org_id = $1 AND timetable_id = $2 AND deleted_at IS NULL`, [orgId, tt.id])).rows.map((c) => ({ ...c, classroom_id: N(c.classroom_id), membership_id: N(c.membership_id), second_membership_id: c.second_membership_id == null ? null : N(c.second_membership_id) })) : [];
     const members = (await pool.query(
-      `SELECT m.id, u.name, m.duty, (SELECT json_build_object('id', c.id, 'grade', c.grade) FROM classroom c WHERE c.homeroom_membership_id = m.id AND c.deleted_at IS NULL LIMIT 1) AS homeroom
-       FROM membership m JOIN app_user u ON u.id = m.user_id
+      `SELECT m.id, m.name, m.duty, (SELECT json_build_object('id', c.id, 'grade', c.grade) FROM classroom c WHERE c.homeroom_membership_id = m.id AND c.deleted_at IS NULL LIMIT 1) AS homeroom
+       FROM membership m
        WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.status = '사용' AND m.role IN ('기관관리자','교직원')`, [orgId])).rows.map((m) => ({ ...m, id: N(m.id) }));
     const periodConfig = (await pool.query(`SELECT period_config FROM org WHERE id = $1`, [orgId])).rows[0]?.period_config ?? {};
     const day = (await pool.query(
@@ -110,7 +110,7 @@ export function substituteRouter(pool, opts = {}) {
     try {
       const t = await currentTerm(pool, req.orgId);
       const members = (await pool.query(
-        `SELECT m.id, u.name FROM membership m JOIN app_user u ON u.id = m.user_id
+        `SELECT m.id, m.name FROM membership m
          WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.status = '사용' AND m.role IN ('기관관리자','교직원') AND m.duty IS NOT NULL`, [req.orgId])).rows;
       const takes = (await pool.query(
         `SELECT taken_membership_id AS membership_id, taken_outside_name AS outside_name, to_char(on_date,'YYYY-MM-DD') AS on_date FROM substitute

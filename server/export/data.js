@@ -16,7 +16,7 @@ export async function loadSheetData(pool, orgId, ttId) {
     cells: await q(`SELECT classroom_id, weekday, period, subject_id, membership_id, second_membership_id, special_room_id FROM cell WHERE org_id = $1 AND timetable_id = $2 AND deleted_at IS NULL`, [orgId, tt.id]),
     classrooms: await q(`SELECT id, grade, class_no FROM classroom WHERE org_id = $1 AND term_id = $2 AND deleted_at IS NULL ORDER BY grade, class_no`, [orgId, tt.term_id]),
     subjects: await q(`SELECT id, name, short_name FROM subject WHERE org_id = $1`, [orgId]),
-    teachers: await q(`SELECT m.id, u.name, m.duty FROM membership m JOIN app_user u ON u.id = m.user_id WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.role <> '시스템관리자'`, [orgId]),
+    teachers: await q(`SELECT m.id, m.name, m.duty FROM membership m WHERE m.org_id = $1 AND m.deleted_at IS NULL AND m.role <> '시스템관리자'`, [orgId]),
     rooms: await q(`SELECT id, name FROM special_room WHERE org_id = $1`, [orgId]),
     weekdays: (await loadConfig(pool, orgId)).weekdays,
     periodConfig: (await q(`SELECT period_config FROM org WHERE id = $1`, [orgId]))[0]?.period_config ?? {},
