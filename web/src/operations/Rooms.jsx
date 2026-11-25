@@ -6,6 +6,7 @@ import { todayStr as today } from '../today.js';
 import { useOrgConfig } from '../orgConfig.js';
 import Term from '../Term.jsx';
 import { useConfirm } from '../Confirm.jsx';
+import { t } from '../../../shared/text/index.js';
 
 // 특별실 — 예약 · 빈 교실 찾기 · (관리자) 고정 칸 잠금. 겹쳐도 저장되고 경고만 뜬다
 export default function Rooms({ P, admin, onGo }) {
@@ -51,6 +52,7 @@ ${overlaps.join(' · ')}
     }
     setWarn(r.warnings);
   });
+  const usedText = (r) => t('school.special.free_used', { 사용: r.used, 정원: r.slots }); // 문구-예외: 문구 변수 이름
   const roomOpts = rooms.map((r) => ({ value: String(r.id), label: r.name }));
   const dateRow = (
     <Group grow wrap="nowrap">
@@ -97,7 +99,10 @@ ${overlaps.join(' · ')}
           {free?.map((r) => (
             <Group key={r.id} justify="space-between" wrap="nowrap">
               <Text>{r.name}</Text>
-              {r.free ? <Badge color="green">비어 있음</Badge> : <Text size="xs" c="dimmed">{r.busy.join(' · ')}</Text>}
+              <Group gap="xs" wrap="nowrap">
+                {r.capacity > 0 && <Text size="xs" c="dimmed">{usedText(r)}</Text>}
+                {r.free ? <Badge color="green">비어 있음</Badge> : <Text size="xs" c="dimmed">{r.busy.join(' · ')}</Text>}
+              </Group>
             </Group>
           ))}
         </>
