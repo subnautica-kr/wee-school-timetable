@@ -114,6 +114,29 @@ export function prepare(input) {
     (byKind.get(kind) ?? byKind.set(kind, []).get(kind)).push(r.id);
   }
   for (const ids of byKind.values()) if (ids.length > 1) for (const id of ids) poolOf.set(String(id), ids);
+  // 정원(T-1312): 정원 k 인 방은 자리 k 개(rIdx 칸)로 편다 — 자리 0 은 방 id 그대로, 나머지는 `id#i`. 한 자리엔 한 수업.
+  // capacity 가 NULL·0 이면 1. input.rooms 에 없는 방(옛 재료)은 자리 1 개.
+  const capOf = new Map((input.rooms || []).map((r) => [String(r.id), Math.max(1, Math.floor(Number(r.capacity)) || 1)]));
+  const slotRoom = []; // 자리 칸 → 원래 방 id
+  const slotsOf = (id) => {
+    const n = capOf.get(String(id)) ?? 1;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const s = key(rIdx, i ? `${id}#${i}` : id);
+      slotRoom[s] = orig.get(String(id)) ?? id;
+      out.push(s);
+    }
+    return out;
+  };
+  // 묶음(room_group_id): 살아 있는 방만(서버가 거른 input.room_groups ∩ input.rooms). 묶음 전체 자리 = 방들 정원 합
+  const known = new Set((input.rooms || []).map((r) => String(r.id)));
+  const groupRooms = new Map((input.room_groups || []).map((g) => [String(g.id), (g.room_ids || []).filter((x) => known.has(String(x)))]));
+  // 줄이 쓸 방 후보(방이 이긴다 · 같은 종류 방 묶음 포함)
+  const roomsOfLine = (l) => {
+    if (l.special_room_id != null) return poolOf.get(String(l.special_room_id)) ?? [l.special_room_id];
+    if (l.room_group_id != null) return groupRooms.get(String(l.room_group_id)) ?? [];
+    return [];
+  };
   const lessons = [];
   const skipped = [];
   const warnings = []; // 준비 단계 알림(막지 않음) — solve 결과 warnings 에 붙는다
@@ -156,15 +179,20 @@ export function prepare(input) {
     if (l.weekly_hours === 0 && small.joint.some((j) => j.lines.includes(l))) continue; // 전부 묶여 나간 줄
     if (ci == null || !l.subject_id || !(l.weekly_hours > 0)) { skipped.push(l); continue; }
     const t = key(tIdx, l.membership_id);
-    const r = key(rIdx, l.special_room_id);
+    const slots = roomsOfLine(l).flatMap(slotsOf);
+    // 방 사용 시수(room_hours · NULL = 전부)만큼 앞 묶음부터 방을 붙인다. 연강은 쪼개지 않고 통째로 붙이고 room_block_whole 을 알린다
+    let roomLeft = l.room_hours == null ? l.weekly_hours : Math.max(0, Math.floor(l.room_hours));
     let h = l.weekly_hours;
     const blk = Math.max(1, Math.min(3, Math.floor(l.block) || 1));
     const S = secondOf(l, t, l.weekly_hours);
     while (h > 0) {
       const span = Math.min(blk, h);
-      const pool = l.special_room_id != null ? poolOf.get(String(l.special_room_id)) : null;
       const { t2, sec } = attach(S, span, l);
-      lessons.push({ id: lessons.length, c: ci, cs: [ci], t, t2, ts: tsOf(t, t2), sec, r, rs: r >= 0 ? [r] : [], s: l.subject_id, span, sync: !!l.sync_progress, line: l, lines: null, fixed: false, d: -1, p: -1, ...(pool ? { alt: pool.map((x) => key(rIdx, x)) } : {}) });
+      const useRoom = slots.length > 0 && roomLeft > 0;
+      if (useRoom && span > roomLeft) warnings.push({ rule: 'room_block_whole', classroom_id: l.classroom_id, subject_id: l.subject_id, hours: span, room_hours: roomLeft });
+      if (useRoom) roomLeft -= span;
+      const r = useRoom ? slots[0] : -1;
+      lessons.push({ id: lessons.length, c: ci, cs: [ci], t, t2, ts: tsOf(t, t2), sec, r, rs: r >= 0 ? [r] : [], s: l.subject_id, span, sync: !!l.sync_progress, line: l, lines: null, fixed: false, d: -1, p: -1, ...(useRoom && slots.length > 1 ? { alt: slots } : {}) });
       h -= span;
     }
   }
@@ -187,8 +215,11 @@ export function prepare(input) {
       const ti = tIdx.get(String(pin.target_id));
       if (ti != null) teachBlockP[(ti * DAYS + d) * W + pin.period] = 1;
     } else if (pin.target_kind === '특별실') {
-      const ri = rIdx.get(String(pin.target_id));
-      if (ri != null) roomBlockC[(ri * DAYS + d) * W + pin.period] = 1; // 특별실은 시각 칸 기준
+      const n = capOf.get(String(pin.target_id)) ?? 1; // 정원만큼 편 자리 모두 막는다
+      for (let i = 0; i < n; i++) {
+        const ri = rIdx.get(i ? `${pin.target_id}#${i}` : String(pin.target_id));
+        if (ri != null) roomBlockC[(ri * DAYS + d) * W + pin.period] = 1; // 특별실은 시각 칸 기준
+      }
     }
   }
   // 교사별 식사 후보 시각(가르치는 학년들의 점심 칸)
@@ -204,7 +235,7 @@ export function prepare(input) {
     L.g = gk;
   }
   const ids = { teachers: [...tIdx.keys()], rooms: [...rIdx.keys()] };
-  return { orig, days: DAYS, small: input.small || null, joint: small.joint.length, classes, lessons, nC, nT, nR, classBlock, teachBlockP, roomBlockC, fixedReq, lunchClocks: lunchClocks.map((s) => [...s]), groups, skipped, ids, warnings };
+  return { orig, slotRoom, days: DAYS, small: input.small || null, joint: small.joint.length, classes, lessons, nC, nT, nR, classBlock, teachBlockP, roomBlockC, fixedReq, lunchClocks: lunchClocks.map((s) => [...s]), groups, skipped, ids, warnings };
 }
 
 // 한 후보 풀기. 상태는 prep 안 lessons 의 d/p 와 점유 배열.
@@ -463,7 +494,7 @@ export function solve(prep, { seed = 1, strategy = 0, deadline = Date.now() + 30
     const ls = L.lines || [L.line];
     for (let j = 0; j < L.cs.length; j++) {
       for (let i = 0; i < L.span; i++) {
-        cells.push({ classroom_id: classes[L.cs[j]].id, weekday: L.d + 1, period: L.p + i, subject_id: L.s, membership_id: ls[j].membership_id ?? null, ...(L.sec != null ? { second_membership_id: L.sec } : {}), special_room_id: L.alt ? (prep.orig.get(prep.ids.rooms[L.rs[0]]) ?? ls[j].special_room_id ?? null) : (ls[j].special_room_id ?? null) });
+        cells.push({ classroom_id: classes[L.cs[j]].id, weekday: L.d + 1, period: L.p + i, subject_id: L.s, membership_id: ls[j].membership_id ?? null, ...(L.sec != null ? { second_membership_id: L.sec } : {}), special_room_id: L.lines ? (ls[j].special_room_id ?? null) : (L.rs.length ? (prep.slotRoom[L.rs[0]] ?? null) : null) }); // 홑 수업은 고른 자리의 방(방 사용 시수 밖이면 비움)
       }
     }
   }
