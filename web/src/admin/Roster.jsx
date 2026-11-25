@@ -8,6 +8,7 @@ import { 값이름 } from '../../../shared/text/index.js';
 import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 import { LinkModal, UnlinkedBox } from './AccountLink.jsx';
 import BulkLink from './BulkLink.jsx';
+import RosterExcel from './RosterExcel.jsx';
 import { TransferNote } from './Transfers.jsx';
 import { useLastAdmin } from './LastAdminAsk.jsx';
 import { flaggedRows, forcePath, mergeBulkStatus, transferNote } from './forceView.js';
@@ -183,10 +184,14 @@ export default function Roster({ orgId, onGoSetup }) {
         </fieldset>
       </form>
       <Group>
-        <Button variant="default" onClick={getTemplate}>엑셀 양식 내려받기</Button>
-        <FileButton onChange={pick} accept=".xlsx">{(p) => <Button variant="default" {...p}>엑셀 올리기</Button>}</FileButton>
+        <RosterExcel base={base} onDone={load} />
         <Button variant="default" onClick={() => setBulkLink(true)}>{t('roster.bulk_link.open')}</Button>
         <SetupLink step="roster" onGo={onGoSetup} />
+      </Group>
+      <Group gap="xs">
+        <Text size="xs" c="dimmed">{t('roster.excel_ui.other_hint')}</Text>
+        <Button size="xs" variant="subtle" onClick={getTemplate}>{t('roster.excel_ui.other_template')}</Button>
+        <FileButton onChange={pick} accept=".xlsx">{(p) => <Button size="xs" variant="subtle" {...p}>{t('roster.excel_ui.other_upload')}</Button>}</FileButton>
       </Group>
 
       {(hv.noClass.length > 0 || hv.noTeacher.length > 0) && (
