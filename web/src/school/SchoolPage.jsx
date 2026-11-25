@@ -14,6 +14,7 @@ import { MenuIntro } from '../grid/Guide.jsx';
 import { useConfirm } from '../Confirm.jsx';
 import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 import LoadUpload from './LoadUpload.jsx';
+import SpecialRooms, { warnTexts } from './SpecialRooms.jsx';
 import SchoolSetup from './SchoolSetup.jsx';
 import { t } from '../../../shared/text/index.js';
 
@@ -248,11 +249,9 @@ function Basics({ P, admin }) {
   const [term, reloadTerm] = useLoad(`${P}/term`);
   const [classes, reloadC] = useLoad(`${P}/classrooms`);
   const [cfg, reloadCfg] = useLoad(`${P}/school/periods`);
-  const [rooms, reloadR] = useLoad(`${P}/special-rooms`);
   const [del, delBox] = useDelete();
   const [grade, setGrade] = useState(1);
   const [count, setCount] = useState(3);
-  const [room, setRoom] = useState({ name: '', purpose: '수업용' });
   const [error, setError] = useState('');
   // 반 줄이기 — 고른 학년의 맨 뒤 반(반 번호가 가장 큰 반) 하나를 지우기 창(딸린 것 미리보기)으로 지운다
   const gradeVar = { 학년: grade }; // 문구-예외: 문구 변수 이름
@@ -299,16 +298,8 @@ function Basics({ P, admin }) {
       <Text fw={600}>교시 시작·끝 시각</Text>
       <Text size="sm" c="dimmed">전 학년 공통입니다. 적어 두면 학년마다 점심 자리가 달라도 교사·특별실 겹침을 시각으로 셉니다. 비우면 교시 번호로 셉니다. 09:00 꼴로 적습니다.</Text>
       <TimesTable key={cfg ? 'ready' : 'wait'} n={maxP} times={cfg?.times} disabled={!admin} onSave={(t) => run(() => saveTimes(t))()} />
-      <Text fw={600}>특별실</Text>
       {delBox}
-      {(rooms || []).map((r) => <Group key={r.id} gap="xs"><Text size="sm">{r.name} <Badge variant="light">{r.purpose}</Badge> {r.capacity ? `정원 ${r.capacity}` : ''}</Text>{admin && <Button size="compact-xs" variant="subtle" color="red" onClick={() => del(cascadeOpts(P, 'special_room', r.id, r.name, `${P}/special-rooms/${r.id}`, { lead: '이 특별실을 없앱니다. 시수표·시간표 칸에서는 특별실만 비고, 오늘부터의 예약은 함께 사라집니다.', onDone: reloadR }))}>지우기</Button>}</Group>)}
-      {admin && (
-        <Group>
-          <TextInput placeholder="이름" value={room.name} onChange={(e) => setRoom({ ...room, name: e.currentTarget.value })} />
-          <Select data={['수업용', '예약용']} value={room.purpose} onChange={(v) => setRoom({ ...room, purpose: v })} w={110} />
-          <Button onClick={run(async () => { await api('POST', `${P}/special-rooms`, room); setRoom({ ...room, name: '' }); reloadR(); })}>추가</Button>
-        </Group>
-      )}
+      <SpecialRooms P={P} admin={admin} />
       <Subjects P={P} admin={admin} />
     </Stack>
   );
@@ -354,12 +345,26 @@ function Loads({ P, admin }) {
   const [people] = useLoad(`${P}/specialists`);
   const [subjects] = useLoad(`${P}/subjects`);
   const [classes] = useLoad(`${P}/classrooms`);
+  const [rooms] = useLoad(`${P}/special-rooms`);
+  const [roomGroups] = useLoad(`${P}/special-room-groups`);
   const [row, setRow] = useState({});
   const [ask, box] = useConfirm();
   const [fail, setFail] = useState('');
+  const [notes, setNotes] = useState([]); // 저장하며 서버가 돌려준 알림(노랑)
+  // 특별실 고르기 — 방은 r번호, 묶음은 g번호. 묶음은 맨 위 「묶음」 모음에 둔다
+  const roomData = [
+    ...((roomGroups || []).length ? [{ group: t('school.room.load_group_head'), items: roomGroups.map((g) => ({ value: `g${g.id}`, label: g.name })) }] : []),
+    { group: t('school.room.load_room_head'), items: (rooms || []).map((r) => ({ value: `r${r.id}`, label: r.name })) },
+  ];
+  const roomVal = (l) => (l.special_room_id ? `r${l.special_room_id}` : l.room_group_id ? `g${l.room_group_id}` : null);
+  const roomBody = (v) => ({ special_room_id: v?.startsWith('r') ? Number(v.slice(1)) : null, room_group_id: v?.startsWith('g') ? Number(v.slice(1)) : null, ...(v ? {} : { room_hours: null }) });
+  const roomShow = (l) => {
+    const n = l.special_room_id ? nm(rooms, 'id', l.special_room_id)?.name : l.room_group_id ? nm(roomGroups, 'id', l.room_group_id)?.name : null;
+    return n ? t('school.room.load_show_room', { 이름: n }) + (l.room_hours != null ? t('school.room.load_show_hours', { 시수: l.room_hours }) : t('school.room.load_show_all')) : null;
+  };
   const opt = (a, f) => (a || []).map((x) => ({ value: String(f.v(x)), label: f.l(x) }));
   const nm = (arr, k, id) => (arr || []).find((x) => String(x[k]) === String(id));
-  const guard = (fn) => () => { setFail(''); return Promise.resolve().then(fn).then(reload).catch((e) => setFail(e.message)); };
+  const guard = (fn) => () => { setFail(''); setNotes([]); return Promise.resolve().then(fn).then((r) => { setNotes(warnTexts(r)); return reload(); }).catch((e) => setFail(e.message)); };
   // 반 고르기: 「○학년 전체」(g○)와 낱개 반을 섞어 고른다. 겹치면 한 번만 센다. 비우면 모든 반(반 지정 없음).
   const grades = [...new Set((classes || []).map((c) => c.grade))].sort((a, b) => a - b);
   const classData = [
@@ -369,9 +374,11 @@ function Loads({ P, admin }) {
   const pickedIds = (vals) => [...new Set((vals || []).flatMap((v) => (v.startsWith('g') ? classes.filter((c) => c.grade === Number(v.slice(1))).map((c) => c.id) : [Number(v)])))];
   const add = guard(async () => {
     const ids = pickedIds(row.c);
-    const base = { membership_id: row.m ? Number(row.m) : null, subject_id: row.s ? Number(row.s) : null, weekly_hours: row.h || 0, sync_progress: !!row.p, block: row.b ? 2 : 1, ...(row.m2 ? { second_membership_id: Number(row.m2), second_hours: row.h2 === '' || row.h2 == null ? null : Number(row.h2) } : {}) };
-    for (const c of ids.length ? ids : [null]) await api('POST', `${P}/loads`, { ...base, classroom_id: c });
+    const base = { membership_id: row.m ? Number(row.m) : null, subject_id: row.s ? Number(row.s) : null, weekly_hours: row.h || 0, sync_progress: !!row.p, block: row.b ? 2 : 1, ...(row.m2 ? { second_membership_id: Number(row.m2), second_hours: row.h2 === '' || row.h2 == null ? null : Number(row.h2) } : {}), ...(row.r ? { ...roomBody(row.r), room_hours: row.rh === '' || row.rh == null ? null : Number(row.rh) } : {}) };
+    const got = [];
+    for (const c of ids.length ? ids : [null]) got.push(...warnTexts(await api('POST', `${P}/loads`, { ...base, classroom_id: c })));
     setRow({});
+    return { warnings: [...new Set(got)].map((msg) => ({ msg })) };
   });
   const patch = (l, body) => guard(() => api('PATCH', `${P}/loads/${l.id}`, body))();
   const remove = async (l) => {
@@ -384,6 +391,7 @@ function Loads({ P, admin }) {
     <Stack>
       {box}
       <Err e={err || fail} />
+      {notes.map((m, i) => <Alert key={i} color="yellow">{m}</Alert>)}
       {(d?.alerts || []).map((a, i) => <MissingBox key={i} a={a} />)}
       {admin && <LoadUpload P={P} onDone={reload} />}
       <Table className="card-table"><Table.Tbody>
@@ -418,6 +426,14 @@ function Loads({ P, admin }) {
                 </Group>
               ) : <>{l.weekly_hours}시수{l.sync_progress ? ' · 진도 맞춤' : ''}{l.block === 2 ? ' · 2시수 연강' : ''}</>}
             </Table.Td>
+            <Table.Td>
+              {admin ? (
+                <Group gap="xs" wrap="nowrap">
+                  <Select aria-label={t('school.room.load_room_label')} placeholder={t('school.room.load_room_ph')} clearable searchable data={roomData} value={roomVal(l)} onChange={(v) => patch(l, roomBody(v))} w={150} />
+                  {roomVal(l) && <NumberInput aria-label={t('school.room.load_hours_label')} placeholder={t('school.room.load_hours_ph')} min={0} allowDecimal={false} key={`${l.id}:rh:${l.room_hours}`} defaultValue={l.room_hours ?? ''} onBlur={(e) => { const v = numOfText(e.currentTarget.value); if (v !== (l.room_hours ?? null)) patch(l, { room_hours: v }); }} w={110} suffix={t('school.room.load_hours_suffix')} />}
+                </Group>
+              ) : roomShow(l)}
+            </Table.Td>
             <Table.Td>{admin && <Button size="xs" variant="subtle" color="red" onClick={() => remove(l)}>지우기</Button>}</Table.Td>
           </Table.Tr>
         ))}
@@ -430,6 +446,8 @@ function Loads({ P, admin }) {
           <NumberInput placeholder="시수" description={`기관 기준 주 ${org.limits.loadPerWeek}`} min={0} value={row.h ?? ''} onChange={(v) => setRow({ ...row, h: v })} w={80} />
           <Select placeholder="둘째 교사(선택)" clearable searchable data={opt(people, { v: (x) => x.membership_id, l: (x) => x.name }).filter((o) => o.value !== row.m)} value={row.m2 ?? null} onChange={(v) => setRow({ ...row, m2: v })} w={150} />
           {row.m2 && <NumberInput placeholder="함께 시수" description="비우면 전부" min={0} allowDecimal={false} value={row.h2 ?? ''} onChange={(v) => setRow({ ...row, h2: v })} w={100} />}
+          <Select placeholder={t('school.room.load_room_ph')} clearable searchable data={roomData} value={row.r ?? null} onChange={(v) => setRow({ ...row, r: v })} w={150} />
+          {row.r && <NumberInput placeholder={t('school.room.load_hours_ph')} description={t('school.room.load_hours_hint')} min={0} allowDecimal={false} value={row.rh ?? ''} onChange={(v) => setRow({ ...row, rh: v })} w={130} />}
           <Switch label="진도 맞춤" checked={!!row.p} onChange={(e) => setRow({ ...row, p: e.currentTarget.checked })} />
           <Switch label="2시수 연강" checked={!!row.b} onChange={(e) => setRow({ ...row, b: e.currentTarget.checked })} />
           <Button onClick={add}>줄 추가</Button>

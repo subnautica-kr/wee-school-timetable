@@ -17,6 +17,42 @@ export default {
     "group_name_dup": "같은 이름의 묶음이 이미 있어요.",
     "free_used": "{사용}/{정원}반 사용 중"
   },
+  "room": {
+    "_자리": "학교 기본 › 특별실·특별실 묶음 · 시수표 › 특별실 고르기 · 학교 상태 › 점검",
+    "title": "특별실",
+    "capacity_label": "{이름} 정원",
+    "capacity_ph": "정원 없음",
+    "capacity_prefix": "정원 ",
+    "capacity_show": "정원 {정원}",
+    "capacity_hint": "정원은 한 번에 들어갈 수 있는 반 수입니다. 비우면 정원 없음(한 반)으로 봅니다.",
+    "delete_lead": "이 특별실을 없앱니다. 시수표·시간표 칸에서는 특별실만 비고, 오늘부터의 예약은 함께 사라집니다.",
+    "delete_button": "지우기",
+    "name_ph": "이름",
+    "add_button": "추가",
+    "group_title": "특별실 묶음",
+    "group_lead": "「과학실 아무 방」처럼 같은 종류 방을 한 묶음으로 만들면, 시수표 줄에서 방 하나 대신 묶음을 고를 수 있습니다.",
+    "group_none": "아직 묶음이 없습니다.",
+    "group_name_label": "묶음 이름",
+    "group_name_ph": "묶음 이름",
+    "group_rooms_label": "묶음에 넣을 방",
+    "group_rooms_ph": "방 고르기",
+    "group_add": "묶음 만들기",
+    "group_delete": "묶음 지우기",
+    "group_delete_ask": "「{이름}」 묶음을 지울까요? 이 묶음을 쓰던 시수표 줄은 특별실이 빕니다.",
+    "group_delete_yes": "지우기",
+    "load_room_label": "특별실",
+    "load_room_ph": "특별실(선택)",
+    "load_group_head": "묶음",
+    "load_room_head": "방",
+    "load_hours_label": "특별실 쓰는 시수",
+    "load_hours_ph": "방 전부",
+    "load_hours_hint": "특별실 쓰는 시수 — 비우면 시수 전부",
+    "load_hours_suffix": "시수",
+    "load_show_room": "특별실 {이름}",
+    "load_show_hours": " · 방 {시수}시수",
+    "load_show_all": " · 방 전부",
+    "group_tag": "묶음 {이름}"
+  },
   "pin": {
     "_자리": "교사·반 고정·금지 화면 › 지우기 단추 › 지우기 전 확인 창",
     "delete_ask": "이 {종류} 줄을 지울까요?\n{대상} · {요일} {교시}교시",
@@ -133,7 +169,8 @@ export default {
     "kind": "고정·금지",
     "subject": "교과(고정일 때)",
     "weekdays": "월화수목금토일"
-  },
+  }
+,
   "wizard": {
     "_자리": "학교 자료 넣기 › 화면 머리 › 처음 열 때",
     "tab": "학교 자료 넣기",

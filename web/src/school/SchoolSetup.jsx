@@ -17,7 +17,8 @@ const b64Blob = (b64) => new Blob([Uint8Array.from(atob(b64), (c) => c.charCodeA
 
 // 점검 항목 한 줄 — 서버가 주는 꼴(이름 · 학년-반 · 시수/한도)을 그대로 읽는다
 const itemText = (i) => {
-  const who = i.name ?? (i.grade != null ? `${i.grade}-${i.class_no}` : `#${i.id}`);
+  const tag = i.group ? t('school.room.group_tag', { 이름: i.name }) : null; // 문구-예외: 문구 변수 이름
+  const who = tag ?? i.name ?? (i.grade != null ? `${i.grade}-${i.class_no}` : `#${i.id}`);
   return i.cap != null ? `${who}(${i.hours}/${i.cap})` : who;
 };
 
