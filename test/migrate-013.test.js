@@ -158,21 +158,27 @@ test('013 뒤 DB 규칙: 이름 채움 · 계정 없는 줄 · 상태 넷 · 지
   const u = (await one(`INSERT INTO app_user (name, login_id, password_hash) VALUES ('새샘','new','x') RETURNING id`)).id;
   const m = await one(`INSERT INTO membership (org_id, user_id, role) VALUES ($1,$2,'교직원') RETURNING name, is_concurrent`, [ids.A, u]);
   assert.deepEqual(m, { name: '새샘', is_concurrent: false });
-  // 주면 그 이름
-  assert.equal((await one(`INSERT INTO membership (org_id, user_id, role, name) VALUES ($1,$2,'교직원','학교가 적은 이름') RETURNING name`, [ids.B, u])).name, '학교가 적은 이름');
+  // 주면 그 이름(둘째 학교 줄이라 겸임 표시는 쓰는 쪽이 넣는다)
+  assert.equal((await one(`INSERT INTO membership (org_id, user_id, role, name, is_concurrent) VALUES ($1,$2,'교직원','학교가 적은 이름',TRUE) RETURNING name`, [ids.B, u])).name, '학교가 적은 이름');
+  // 겸임 표시 없이 둘째 본 소속을 넣으면 이제 DB 가 막는다(017 이 「저절로 겸임」을 걷었다 · 판정은 앱 hasPrimaryLine)
+  const C = (await one(`INSERT INTO org (name, kind) VALUES ('셋째학교','초') RETURNING id`)).id;
+  await assert.rejects(pool.query(`INSERT INTO membership (org_id, user_id, role) VALUES ($1,$2,'교직원')`, [C, u]), { code: '23505' });
   // 계정 없는 줄
   assert.equal((await one(`INSERT INTO membership (org_id, role, name) VALUES ($1,'교직원','계정없는샘') RETURNING user_id`, [ids.A])).user_id, null);
   // 계정도 이름도 없으면 거절
   await assert.rejects(pool.query(`INSERT INTO membership (org_id, role) VALUES ($1,'교직원')`, [ids.A]), { code: '23502' });
   // 재직 상태 넷 · 그 밖은 거절
-  for (const s of Object.values(MEMBER_STATUS)) await pool.query(`UPDATE membership SET status = $1 WHERE id = $2`, [s, ids.hidA]);
-  // 옛 숨김 줄을 풀었는데 다른 학교에 본 소속이 있으면(옛 「숨김 풀기」 길) 저절로 겸임 — 500 이 안 난다
-  await pool.query(`UPDATE membership SET status = '사용' WHERE id = $1`, [ids.hidA]);
-  assert.equal((await one(`SELECT is_concurrent FROM membership WHERE id = $1`, [ids.hidA])).is_concurrent, true);
+  //   hidA 는 다른 학교(B)에 본 소속이 있어 겸임으로 돌려야 재직·휴직이 된다
+  for (const s of Object.values(MEMBER_STATUS)) await pool.query(`UPDATE membership SET status = $1, is_concurrent = TRUE WHERE id = $2`, [s, ids.hidA]);
+  await pool.query(`UPDATE membership SET is_concurrent = FALSE WHERE id = $1`, [ids.hidA]);
+  // 숨김 줄을 겸임 판정 없이 재직으로 풀면 DB 가 막는다(옛 트리거는 저절로 겸임으로 세웠다)
+  await assert.rejects(pool.query(`UPDATE membership SET status = '사용' WHERE id = $1`, [ids.hidA]), { code: '23505' });
+  assert.equal((await one(`SELECT status, is_concurrent FROM membership WHERE id = $1`, [ids.hidA])).status, '숨김');
   await assert.rejects(pool.query(`UPDATE membership SET status = '퇴직' WHERE id = $1`, [ids.hidA]), { code: '23514' });
   await pool.query(`UPDATE membership SET status = '숨김' WHERE id = $1`, [ids.hidA]);
-  // 지운 줄은 자리를 안 차지한다 — 같은 학교에 같은 계정 줄을 다시 넣을 수 있다(본 소속이 다른 학교라 저절로 겸임)
-  const back = await one(`INSERT INTO membership (org_id, user_id, role) VALUES ($1,$2,'교직원') RETURNING is_concurrent`, [ids.A, ids.del]);
+  // 지운 줄은 자리를 안 차지한다 — 같은 학교에 같은 계정 줄을 다시 넣을 수 있다(본 소속이 다른 학교라 겸임으로 넣는다)
+  await assert.rejects(pool.query(`INSERT INTO membership (org_id, user_id, role) VALUES ($1,$2,'교직원')`, [ids.A, ids.del]), { code: '23505' });
+  const back = await one(`INSERT INTO membership (org_id, user_id, role, is_concurrent) VALUES ($1,$2,'교직원',TRUE) RETURNING is_concurrent`, [ids.A, ids.del]);
   assert.equal(back.is_concurrent, true);
   // 살아 있는 줄은 같은 학교에 둘 못 둔다
   await assert.rejects(pool.query(`INSERT INTO membership (org_id, user_id, role) VALUES ($1,$2,'교직원')`, [ids.B, ids.del]), { code: '23505' });
