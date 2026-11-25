@@ -118,7 +118,7 @@ test('경로: 동시 맡기 20건 중 1건만 성공 · 후보 등급 · 형평�
   const cls = async (g, n, hm) => (await pool.query(`INSERT INTO classroom (org_id, term_id, grade, class_no, homeroom_membership_id, student_count) VALUES ($1,$2,$3,$4,$5,30) RETURNING id`, [org, term, g, n, hm])).rows[0].id;
   const c11 = await cls(1, 1, hA.m);
   const c12 = await cls(1, 2, abs.m);
-  const room = (await pool.query(`INSERT INTO special_room (org_id, name, capacity) VALUES ($1,'과학실',20) RETURNING id`, [org])).rows[0].id;
+  const room = (await pool.query(`INSERT INTO special_room (org_id, name, capacity) VALUES ($1,'과학실',1) RETURNING id`, [org])).rows[0].id; // 정원 = 한 번에 들어가는 반 수(T-1311 015) — 1 이면 두 번째 예약부터 겹침
   const tt = (await pool.query(`INSERT INTO timetable (org_id, term_id, name, status) VALUES ($1,$2,'확정판','확정') RETURNING id`, [org, term])).rows[0].id;
   const cell = (c, w, p, m, r = null) => pool.query(`INSERT INTO cell (org_id, timetable_id, classroom_id, weekday, period, membership_id, special_room_id) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [org, tt, c, w, p, m, r]);
   await cell(c11, 1, 2, spec.m, room); // 월 2교시 1-1 전담(과학실)
