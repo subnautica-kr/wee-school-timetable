@@ -3,7 +3,7 @@ import { tempPassword } from './passwords.js';
 import { ROLE, DORMANT_REASON, UNLINKED_REASON, MEMBER_STATUS, MEMBER_STATUS_LOGIN } from '../shared/codes.js';
 import { audit, killSessions } from './audit.js';
 import { registerCleanup } from './cleanup.js';
-import { withTx } from './link.js';
+import { withTx, hasPrimaryLine } from './link.js';
 import { notify } from './notify.js';
 import { t } from '../shared/text/index.js';
 
@@ -32,7 +32,12 @@ export async function createAccount(db, { orgId, name, loginId, role, duty = nul
     if (!ins.rows[0]) return { error: '이미 쓰고 있는 ID 입니다' };
     userId = ins.rows[0].id;
   }
-  const m = await db.query(`INSERT INTO membership (org_id, user_id, role, duty, linked_at) VALUES ($1,$2,$3,$4, now()) RETURNING id`, [orgId, userId, role, duty]);
+  // 이미 있는 계정에 소속을 더하면(겸임 데려오기) 본 소속이 따로 있을 때 겸임으로 넣는다
+  const conc = !!found && role !== ROLE.SYSADMIN && (await hasPrimaryLine(db, userId));
+  const m = await db.query(
+    `INSERT INTO membership (org_id, user_id, role, duty, linked_at, is_concurrent) VALUES ($1,$2,$3,$4, now(), $5) RETURNING id`,
+    [orgId, userId, role, duty, conc],
+  );
   // 계정이 든 줄을 만드는 것도 「연결」이다 — 처음 연결 시각을 채우고 휴면을 푼다(T-1320b · 줄 먼저 만들고 잇는 길은 link.js)
   await db.query(`UPDATE app_user SET first_linked_at = COALESCE(first_linked_at, now()), dormant_at = NULL, dormant_reason = NULL WHERE id = $1`, [userId]);
   return { userId: Number(userId), membershipId: Number(m.rows[0].id), temp };

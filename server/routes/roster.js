@@ -13,7 +13,7 @@ import { EXCEL_SPECS, rosterSpec, applyPlans, makeWorkbook, markErrors, planShee
 import { fail } from '../fail.js';
 import { t, 값이름 } from '../../shared/text/index.js';
 import { MEMBER_STATUS, MEMBER_STATUS_LOGIN, ROLE, DORMANT_REASON, TRANSFER_STATUS, UNLINKED_REASON, INVITE_KIND } from '../../shared/codes.js';
-import { linkAccount, unlinkAccount, withTx } from '../link.js';
+import { linkAccount, unlinkAccount, withTx, hasPrimaryLine } from '../link.js';
 import { homeOrgOf, requestTransfer } from './transfer.js';
 import { notify } from '../notify.js';
 import { sameName, sameBirth, matchPerson } from '../match.js';
@@ -152,7 +152,9 @@ export function rosterRouter(pool) {
       const n = (await c.query(`SELECT count(*)::int AS n FROM membership WHERE org_id = $1 AND role = $2 AND status = $3 AND deleted_at IS NULL`, [orgId, ROLE.ORG_ADMIN, MEMBER_STATUS.ACTIVE])).rows[0].n;
       if (n <= 1) return { error: 'roster.err.last_admin' };
     }
-    await c.query(`UPDATE membership SET status = $2 WHERE id = $1`, [ln.id, status]);
+    // 숨김·전출에서 재직·휴직으로 되돌릴 때 다른 본 소속이 있으면 겸임으로 선다(013 트리거 대신 · T-1322b②)
+    const conc = !off && !MEMBER_STATUS_LOGIN.includes(ln.m_status) && ln.user_id != null && (await hasPrimaryLine(c, ln.user_id, ln.id));
+    await c.query(`UPDATE membership SET status = $2, is_concurrent = is_concurrent OR $3 WHERE id = $1`, [ln.id, status, conc]);
     let unlinked = false;
     if (status === MEMBER_STATUS.RETIRED && ln.user_id != null) {
       const u = await unlinkAccount(c, { membershipId: ln.id, byUserId, reason: DORMANT_REASON.RETIRED });
