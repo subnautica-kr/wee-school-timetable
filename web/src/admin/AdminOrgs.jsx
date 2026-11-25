@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { downloadTemp } from './csv.js';
 import { useDelete } from '../DeleteDialog.jsx';
 import { deleteOrgBlock } from '../deleteDialog.js';
+import AdminAccounts from './AdminAccounts.jsx';
 
 // 시스템 관리자 화면 — 기관 등록 · 상태 · 첫 관리자 · 비밀번호 초기화. 기관 안 데이터는 이 화면에 없다.
 export default function AdminOrgs() {
@@ -120,6 +121,8 @@ export default function AdminOrgs() {
           </Table.Tbody>
         </Table>
       </Table.ScrollContainer>
+
+      <AdminAccounts />
 
       <Modal opened={!!admin} onClose={() => setAdmin(null)} title={`${admin?.name} — 첫 관리자 만들기`}>
         <form onSubmit={makeAdmin}>

@@ -1,6 +1,7 @@
 // 가입 서버(T-1321①b) — 가입(숨은 칸·IP 제한·캡차 스위치 자리) · 코드 확인 · 코드 입력(대조·본인 재확인) · 승인 대기 정보
 // · 7일 정리 · 평균 승인 시간. 설계 「가입 화면」 절. 실패는 { error: '<영역>.err.<키>' } 로 돌려주고 길목이 fail() 로 낸다.
 import crypto from 'node:crypto';
+import { captchaOn as captchaState, publicContacts } from '../appSetting.js';
 import express from 'express';
 import argon2 from 'argon2';
 import rateLimit from 'express-rate-limit';
@@ -19,7 +20,7 @@ import { linkAccount, withTx } from '../link.js';
 import { startSession, sessionBody, noOrgKind } from './auth.js';
 import { MEMBER_STATUS, MEMBER_STATUS_LOGIN, ORG_STATUS, ROLE } from '../../shared/codes.js';
 
-const PENDING_DAYS = 7;
+export const PENDING_DAYS = 7;
 const AVG_WINDOW_DAYS = 90;
 const AVG_MIN_CASES = 5;
 
@@ -152,12 +153,19 @@ registerCleanup('signup.unapproved', async (db, now) => {
 export function signupRouter(pool, opts = {}) {
   const r = express.Router();
   const dailyLimit = opts.signupDailyLimit ?? (Number(process.env.SIGNUP_DAILY_LIMIT) || 30);
-  const captchaOn = () => opts.signupCaptcha ?? process.env.SIGNUP_CAPTCHA === 'on'; // 자리만 — 끔이 기본
+  const captchaOn = () => captchaState(pool, opts.signupCaptcha); // 총괄관리자 스위치(app_setting) > 환경변수 · 끔이 기본
   const ipHash = (req) => crypto.createHmac('sha256', secret('SESSION_SECRET') || 'test-secret').update(String(req.ip)).digest('hex');
   const codeLimit = rateLimit({ windowMs: 15 * 60_000, limit: opts.signupCodeLimit ?? 60, standardHeaders: true, legacyHeaders: false });
 
   // 가입 화면이 켜진 스위치를 알아야 한다
-  r.get('/config', (req, res) => res.json({ captcha: !!captchaOn() }));
+  r.get('/config', async (req, res, next) => {
+    try { res.json({ captcha: await captchaOn() }); } catch (e) { next(e); }
+  });
+
+  // 가입 화면이 보여 줄 연락처(로그인 전에도 읽힌다) — 값만
+  r.get('/contacts', async (req, res, next) => {
+    try { res.json(await publicContacts(pool)); } catch (e) { next(e); }
+  });
 
   // 코드 확인(로그인 전) — 학교 이름과 갈래만. 명단 줄의 이름·생년월일은 안 준다
   r.get('/code/:code', codeLimit, async (req, res, next) => {
@@ -203,7 +211,7 @@ export function signupRouter(pool, opts = {}) {
       const tries = (await pool.query(`SELECT count(*)::int AS n FROM signup_attempt WHERE ip_hash = $1 AND at > now() - interval '1 day'`, [hash])).rows[0].n;
       if (tries >= dailyLimit) return fail(res, 429, 'signup.err.too_many');
       await pool.query(`INSERT INTO signup_attempt (ip_hash) VALUES ($1)`, [hash]);
-      if (captchaOn() && !b.captcha) return fail(res, 400, 'signup.err.captcha');
+      if ((await captchaOn()) && !b.captcha) return fail(res, 400, 'signup.err.captcha');
       const problem = passwordProblem(b.password, b.loginId);
       if (problem) return res.status(400).json({ error: problem });
       if (b.code && !(await findLiveCode(pool, b.code))) return fail(res, 409, 'signup.err.code_invalid');
@@ -245,6 +253,7 @@ export function signupRouter(pool, opts = {}) {
       res.json({
         noOrg,
         pending: row ? { orgName: row.org_name, expiresAt: row.expires_at, avgDays: await avgApprovalDays(pool, row.org_id) } : null,
+        contacts: await publicContacts(pool), // 승인 대기 화면의 연락처 줄
         everLinked: !!u?.first_linked_at, // 7일 문구: false 면 「다시 가입」 · true 면 「코드를 다시 받아야」
       });
     } catch (e) { next(e); }
