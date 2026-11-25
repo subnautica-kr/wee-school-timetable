@@ -14,6 +14,7 @@ import { MenuIntro } from '../grid/Guide.jsx';
 import { useConfirm } from '../Confirm.jsx';
 import { cascadeOpts, useDelete } from '../DeleteDialog.jsx';
 import LoadUpload from './LoadUpload.jsx';
+import SchoolSetup from './SchoolSetup.jsx';
 import { t } from '../../../shared/text/index.js';
 
 function useLoad(path) {
@@ -511,15 +512,26 @@ export default function SchoolPage({ user }) {
   const features = useOrgConfig(P).features;
   const on = visibleTabs(SCHOOL_TAB_FEATURE, features, ['basic', 'spec', 'loads', 'pins', ...(admin ? ['rules'] : [])]);
   const has = (t) => on.includes(t);
+  const [tab, setTab] = useState(admin ? 'setup' : null);
+  const cur = tab && (tab === 'setup' || has(tab)) ? tab : on[0];
+  // 7단계 화면의 「직접 고치는 화면」 링크 — 학교 자료 안 탭은 여기서 옮기고, 바깥 탭(명단·특별실·자동 생성)은 윗줄 탭 단추를 눌러 옮긴다
+  const INNER = { school: 'basic', loads: 'loads', pins: 'pins' };
+  const OUTER = { roster: 'roster', rooms: 'rooms', generate: 'gen' };
+  const goOld = (k) => {
+    if (INNER[k]) return setTab(INNER[k]);
+    document.querySelector(`[role="tab"][id$="-tab-${OUTER[k]}"]`)?.click();
+  };
   return (
-    <Tabs key={on[0]} defaultValue={on[0]} keepMounted={false}>
+    <Tabs key={cur === 'setup' ? 'setup' : on[0]} value={cur} onChange={setTab} keepMounted={false}>
       <Tabs.List>
+        {admin && <Tabs.Tab value="setup">{t('school.wizard.tab')}</Tabs.Tab>}
         {has('basic') && <Tabs.Tab value="basic">학교 기본</Tabs.Tab>}
         {has('spec') && <Tabs.Tab value="spec">전담·비교과</Tabs.Tab>}
         {has('loads') && <Tabs.Tab value="loads">시수표</Tabs.Tab>}
         {has('pins') && <Tabs.Tab value="pins">고정·금지</Tabs.Tab>}
         {has('rules') && <Tabs.Tab value="rules">규칙 수위</Tabs.Tab>}
       </Tabs.List>
+      {admin && <Tabs.Panel value="setup" pt="md"><SchoolSetup P={P} goOld={goOld} /></Tabs.Panel>}
       {has('basic') && <Tabs.Panel value="basic" pt="md"><Basics P={P} admin={admin} /></Tabs.Panel>}
       {has('spec') && <Tabs.Panel value="spec" pt="md"><Specialists P={P} admin={admin} /></Tabs.Panel>}
       {has('loads') && <Tabs.Panel value="loads" pt="md"><TabIntro tab="loads" user={user} features={features} /><Text size="sm" c="dimmed" mb="sm"><Term k="시수표">시수표</Term>: 누가·어느 반에·무슨 과목을·주 몇 시간 가르치는지 적은 표입니다(낱말을 누르면 풀이).</Text><Loads P={P} admin={admin} /></Tabs.Panel>}
