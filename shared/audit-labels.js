@@ -7,7 +7,7 @@ export const ACTION_LABEL = {
   'room_lock.create': '특별실 잠금', 'room_lock.delete': '특별실 잠금 풂',
   'special_room_group.create': '특별실 묶음 만듦', 'special_room_group.update': '특별실 묶음 고침', 'special_room_group.delete': '특별실 묶음 지움', // 문구-예외: 감사 이름표 표 자체(T-1311)
   'roster.create-line': '명단 줄 추가(계정 없이)', 'roster.status': '재직 상태 바꿈', // 문구-예외: 감사 이름표 표 자체(T-1302a①)
-  'roster.excel': '명단 엑셀 반영', 'roster.excel-undo': '명단 엑셀 되돌림', 'roster.bulk-link': '계정 일괄 연결', 'link': '계정 연결', 'unlink': '계정 연결 해제', // 문구-예외: 감사 이름표 표 자체(F2 · 1320b·1301b 새 동작)
+  'roster.excel': '명단 엑셀 반영', 'roster.excel-undo': '명단 엑셀 되돌림', 'roster.bulk-link': '계정 일괄 연결', 'roster.concurrent-until': '겸임 기한 바꿈', 'link': '계정 연결', 'unlink': '계정 연결 해제', // 문구-예외: 감사 이름표 표 자체(F2 · 1320b·1301b 새 동작)
   'signup.create': '가입', 'signup.pending': '코드 연결 승인 대기로 넘어감', 'signup.fix': '코드 연결 때 본인 정보 고침', 'signup.move': '학교 옮김(앞 학교 줄 전출)', // 문구-예외: 감사 이름표 표 자체
   'admin.lock-user': '계정 잠금(총괄관리자)', 'admin.unlock-user': '계정 잠금 풂(총괄관리자)', 'admin.captcha': '가입 캡차 스위치 바꿈', 'admin.contact': '총괄관리자 연락처 고침', // 문구-예외: 감사 이름표 표 자체(T-1326)
   'roster.invite': '초대 코드 발급', 'roster.create-account': '계정 만들어 연결', 'roster.unlinked-release': '연결 안 된 계정 내보냄', // 문구-예외: 감사 이름표 표 자체

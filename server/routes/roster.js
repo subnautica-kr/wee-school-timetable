@@ -16,6 +16,7 @@ import { MEMBER_STATUS, MEMBER_STATUS_LOGIN, ROLE, DORMANT_REASON, TRANSFER_STAT
 import { linkAccount, unlinkAccount, withTx, hasPrimaryLine } from '../link.js';
 import { homeOrgOf, requestTransfer } from './transfer.js';
 import { notify } from '../notify.js';
+import { resolveUntil, notifyConcurrent } from '../concurrent.js';
 import { isLastAdmin, forced } from '../lastAdmin.js';
 import { sameName, sameBirth, matchPerson } from '../match.js';
 import { CEIL, dutyFromText, dutyKnown, dutyWarnings, limitWarnings, loadConfig, withWarnings } from '../orgConfig.js';
@@ -279,10 +280,10 @@ export function rosterRouter(pool) {
   };
   const userByLogin = async (loginId) =>
     (await pool.query(`SELECT id, login_id, name FROM app_user WHERE lower(login_id) = lower($1) AND deleted_at IS NULL`, [loginId])).rows[0];
-  const linkIn = z.object({ loginId: z.string().trim().regex(ID_RE), force: z.boolean().optional(), concurrent: z.boolean().optional() });
+  const linkIn = z.object({ loginId: z.string().trim().regex(ID_RE), force: z.boolean().optional(), concurrent: z.boolean().optional(), until: z.string().trim().optional() });
 
   // 대조 경고 둘(이름·생년월일 다름 / 같은 사람 계정이 또 있음) — 막지 않고 알린다. 경고가 있으면 409 needConfirm, force 면 그대로 잇는다.
-  const linkChecked = async (req, res, ln, user, force, concurrent = false) => {
+  const linkChecked = async (req, res, ln, user, force, concurrent = false, until = null) => {
     if (ln.user_id != null) return fail(res, 409, Number(ln.user_id) === Number(user.id) ? 'roster.err.already_linked' : 'roster.err.line_taken');
     if (!force) {
       const m = await matchPerson(pool, { name: ln.name, birthDate: ln.birth_date, userId: user.id });
@@ -301,6 +302,8 @@ export function rosterRouter(pool) {
     }
     // 다른 학교 재직(본 소속) 계정 — 「겸임으로 연결」이 아니면 그 학교에 전출 요청(T-1322b①). 겸임 여부는 여기서 직접 넣는다.
     const by = req.session.userId;
+    const cu = resolveUntil(until);
+    if (cu.error) return fail(res, 400, cu.error);
     const inOrg = (await pool.query(`SELECT 1 FROM membership WHERE user_id = $1 AND org_id = $2 AND deleted_at IS NULL`, [user.id, req.orgId])).rows[0];
     if (inOrg) return fail(res, 409, 'roster.err.account_in_org');
     const home = await homeOrgOf(pool, user.id, req.orgId);
@@ -310,9 +313,16 @@ export function rosterRouter(pool) {
       if (out.autoApproved) return res.json({ ok: true, membershipId: out.membershipId, userId: out.userId, isConcurrent: false, loginId: user.login_id, autoApproved: true });
       return res.status(202).json({ transferRequested: true, requestId: out.requestId, expiresAt: out.expiresAt, loginId: user.login_id });
     }
-    const r = await linkAccount(pool, { membershipId: ln.id, userId: user.id, byUserId: by, concurrent: home != null });
-    if (r.error) return fail(res, 409, r.error);
-    res.json({ ...r, loginId: user.login_id });
+    // 겸임으로 이어지면 기한을 적고 양쪽 학교에 소식(기한을 안 줬으면 그 학년도 2월 말일) — 연결과 한 거래
+    const out = await withTx(pool, async (c) => {
+      const l = await linkAccount(c, { membershipId: ln.id, userId: user.id, byUserId: by, concurrent: home != null });
+      if (l.error || !l.isConcurrent) return l;
+      await c.query(`UPDATE membership SET concurrent_until = $2::date, concurrent_warned_until = NULL WHERE id = $1`, [ln.id, cu.until]);
+      await notifyConcurrent(c, { key: 'linked', orgId: req.orgId, userId: user.id, name: ln.name, until: cu.until });
+      return { ...l, concurrentUntil: cu.until };
+    });
+    if (out.error) return fail(res, 409, out.error);
+    res.json({ ...out, loginId: user.login_id });
   };
 
   // 갈래 ① 아이디로 연결 — { loginId, force?, concurrent?(「겸임으로 연결」) } → { ok, membershipId, userId, isConcurrent, loginId } · 경고면 409 { needConfirm, warnings }
@@ -326,7 +336,29 @@ export function rosterRouter(pool) {
       if (!p.success) return fail(res, 400, 'roster.err.bad_input');
       const user = await userByLogin(p.data.loginId);
       if (!user) return fail(res, 404, 'roster.err.account_not_found');
-      await linkChecked(req, res, ln, user, p.data.force, p.data.concurrent);
+      await linkChecked(req, res, ln, user, p.data.force, p.data.concurrent, p.data.until);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // 겸임 기간 바꾸기(늘리기) — { until: 'YYYY-MM-DD' } → { ok, membershipId, concurrentUntil } · 양쪽 학교에 소식 · 끝 30일 전 알림은 다시 나간다
+  r.put('/:mid/concurrent', async (req, res, next) => {
+    try {
+      const ln = await lineFor(req.params.mid, req.orgId);
+      if (!ln) return nf(res);
+      const cur = (await pool.query(`SELECT is_concurrent FROM membership WHERE id = $1`, [ln.id])).rows[0];
+      if (ln.user_id == null || !cur?.is_concurrent) return fail(res, 409, 'roster.err.not_concurrent');
+      if (typeof req.body?.until !== 'string') return fail(res, 400, 'roster.err.concurrent_until_bad');
+      const cu = resolveUntil(req.body.until);
+      if (cu.error) return fail(res, 400, cu.error);
+      await withTx(pool, async (c) => {
+        await c.query(`UPDATE membership SET concurrent_until = $2::date, concurrent_warned_until = NULL WHERE id = $1`, [ln.id, cu.until]);
+        await audit(c, { ...me(req), action: 'roster.concurrent-until', table: 'membership', rowId: ln.id, after: { date: cu.until } });
+        await notifyConcurrent(c, { key: 'extended', orgId: req.orgId, userId: ln.user_id, name: ln.name, until: cu.until });
+        return { ok: true };
+      });
+      res.json({ ok: true, membershipId: Number(ln.id), concurrentUntil: cu.until });
     } catch (e) {
       next(e);
     }
