@@ -177,7 +177,7 @@ export function schoolRouter(pool) {
     const grades = Object.entries(p.data.classes).filter(([, n]) => n > 0).map(([g, n]) => [Number(g), n]);
     const cfg = (await pool.query(`SELECT period_config FROM org WHERE id = $1`, [req.orgId])).rows[0]?.period_config ?? {};
     const pc = { ...cfg, grades: { ...(cfg.grades ?? {}) } };
-    for (const [g] of grades) pc.grades[g] = { ...(pc.grades[g] ?? {}), periods: p.data.periods?.[g] ?? (g <= 2 ? 5 : 6) };
+    for (const [g] of grades) pc.grades[g] = { ...(pc.grades[g] ?? {}), periods: pc.grades[g]?.periods ?? p.data.periods?.[g] ?? (g <= 2 ? 5 : 6) }; // 학교에 저장된 기본이 먼저 — 있는 값은 안 덮는다
     const c = await pool.connect();
     let tt;
     try {

@@ -22,7 +22,8 @@ test('빠른 시작 경로', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, asy
   const app = createApp(pool, { testMode: true, cookieSecure: false, loginLimit: 1000, apiLimit: 10000 });
   const server = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
   const base = `http://127.0.0.1:${server.address().port}`;
-  t.after(async () => { server.close(); await cleanupOrgs(pool, [org], tag); await pool.end(); });
+  t.after(async () => { server.close(); await cleanupOrgs(pool, [org, ...extra], tag); await pool.end(); });
+  const extra = [];
   const mk = () => {
     const st = { cookie: '', csrf: '' };
     return async (method, path, body) => {
@@ -73,5 +74,30 @@ test('빠른 시작 경로', { skip: !HAS_DB && 'DB 없음 — 건너뜀' }, asy
     const d2 = (await adm('GET', `${P}/timetables/${ttId}`)).json;
     assert.equal(d2.cells.length, 1);
     assert.equal(d2.cells[0].membership_id, null);
+  });
+  // 학교 기본 교시 수가 이미 저장돼 있으면 그 값을 쓴다(상자 값·고정 기본값이 덮지 않음) · 없는 학년은 상자 값 → 기존 기본값
+  const qsOrg = async (n, cfg) => {
+    const o = (await pool.query(`INSERT INTO org (name, kind, period_config) VALUES ($1, '초', $2) RETURNING id`, [`${tag}-${n}`, JSON.stringify(cfg)])).rows[0].id;
+    const u = (await pool.query(`INSERT INTO app_user (name, login_id, password_hash, must_change_password) VALUES ($1,$2,$3,FALSE) RETURNING id`, [n, `${tag}-${n}`, hash])).rows[0].id;
+    await pool.query(`INSERT INTO membership (org_id, user_id, role) VALUES ($1,$2,'기관관리자')`, [o, u]);
+    extra.push(o);
+    const call = mk();
+    await call('GET', '/api/auth/session');
+    assert.equal((await call('POST', '/api/auth/login', { orgId: o, loginId: `${tag}-${n}`, password: 'pw-test-1234' })).status, 200);
+    return { call, o };
+  };
+  await t.test('학교 기본 교시 수가 있으면 그 값을 쓴다(상자 값이 안 덮음)', async () => {
+    const { call, o } = await qsOrg('qa', { grades: { 1: { periods: 4 } } });
+    assert.equal((await call('POST', `/api/orgs/${o}/quick-start`, { classes: { 1: 1, 3: 1 }, periods: { 1: 6, 3: 5 } })).status, 201);
+    const pc = (await pool.query(`SELECT period_config FROM org WHERE id = $1`, [o])).rows[0].period_config;
+    assert.equal(pc.grades[1].periods, 4);
+    assert.equal(pc.grades[3].periods, 5);
+  });
+  await t.test('학교 기본이 없고 상자 값도 없으면 기존 기본값(1·2학년 5, 그 위 6)', async () => {
+    const { call, o } = await qsOrg('qb', {});
+    assert.equal((await call('POST', `/api/orgs/${o}/quick-start`, { classes: { 1: 1, 4: 1 } })).status, 201);
+    const pc = (await pool.query(`SELECT period_config FROM org WHERE id = $1`, [o])).rows[0].period_config;
+    assert.equal(pc.grades[1].periods, 5);
+    assert.equal(pc.grades[4].periods, 6);
   });
 });
