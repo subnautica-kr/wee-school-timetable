@@ -16,6 +16,7 @@ import BackupButton from './BackupButton.jsx';
 import TrashBox from './TrashBox.jsx';
 import VersionHistory from './VersionHistory.jsx';
 import Bell, { HelpRequestButton } from './Bell.jsx';
+import BoardModal from '../board/BoardModal.jsx';
 import { hasNewVersion } from '../changelog.js';
 import { readSeenVersion, writeSeenVersion } from '../seenVersion.js';
 import FeatureBoard from '../settings/FeatureBoard.jsx';
@@ -101,7 +102,7 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
         {bar.map((i) => <Tabs.Tab key={i.v} value={i.v}>{phone && i.phoneLabel ? i.phoneLabel : i.label}{i.v === 'me' && isNew && <span data-testid="new-dot" aria-label="새 기능이 있어요" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--mantine-color-red-6)', marginLeft: 6 }} />}</Tabs.Tab>)}
       </Tabs.List>
       {on('roster') && <Panel v="roster" hint={H.roster}><Roster orgId={user.orgId} /></Panel>}
-      {on('school') && <Panel v="school" hint={H.school}><SchoolPage user={user} /></Panel>}
+      {on('school') && <Panel v="school" hint={H.school}><SchoolPage user={user} goTab={setTab} /></Panel>}
       <Panel v="grid" hint={H.grid}><Grid P={P} admin={admin} /></Panel>
       {on('gen') && <Panel v="gen"><AutoGen P={P} /></Panel>}
       {on('softset') && <Panel v="softset" hint={H.softset}><SoftSettings P={P} /></Panel>}
@@ -126,6 +127,8 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, features, loaded, se
 
 export default function Screens({ user, onLogout, onUser }) {
   const [help, setHelp] = useState(false);
+  const [board, setBoard] = useState(false);
+  const [boardOpen, setBoardOpen] = useState(null); // {id} — 종 소식이 시킨 글
   const phone = useMediaQuery('(max-width: 48em)', false, { getInitialValueInEffect: false }); // 첫 그림부터 폭을 알아야 폰의 시작 탭이 격자로 잡힌다
   const tabProps = phone ? {} : { orientation: 'vertical', placement: 'left' }; // PC 는 왼쪽 세로 탭
   const [mems, setMems] = useState([]);
@@ -177,11 +180,12 @@ export default function Screens({ user, onLogout, onUser }) {
         <Title order={3}>{user.name}님</Title>
         <Group className="no-print">
           {mems.length > 1 && <Select aria-label="기관 바꾸기" data={mems.map((m) => ({ value: String(m.orgId), label: m.name }))} value={String(user.orgId)} onChange={switchOrg} allowDeselect={false} w={200} />}
-          {!user.mustChange && <><HelpRequestButton /><Bell onGoTab={inOrg ? goTab : undefined} onGoMe={inOrg ? () => goTab('me') : undefined} /></>}
+          {!user.mustChange && <><HelpRequestButton onClick={() => setBoard(true)} /><Bell onOpenBoard={(id) => { setBoardOpen({ id }); setBoard(true); }} onGoTab={inOrg ? goTab : undefined} onGoMe={inOrg ? () => goTab('me') : undefined} /></>}
           {inOrg && <Button variant="default" onClick={() => setHelp(true)}>도움말</Button>}
           <Button variant="default" onClick={onLogout}>로그아웃</Button>
         </Group>
       </Group>
+      {!user.mustChange && <BoardModal opened={board} onClose={() => setBoard(false)} openId={boardOpen} />}
       <AddToHome phone={phone} />
       {body}
       {inOrg && <Welcome P={orgP} admin={user.role === '기관관리자'} features={features} />}

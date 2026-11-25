@@ -505,7 +505,7 @@ function Rules({ P, admin }) {
 // 하위 탭 첫 방문 카드 — 그 탭 기능(loads·pins·levels) 소개. 메뉴 안내와 따로 한 번씩
 const TabIntro = ({ tab, user, features }) => <MenuIntro menu={`school:${tab}`} pitchKey={SCHOOL_TAB_FEATURE[tab]} user={user} features={features} />;
 
-export default function SchoolPage({ user }) {
+export default function SchoolPage({ user, goTab }) {
   const P = `/orgs/${user.orgId}`;
   const admin = user.role === '기관관리자';
   // 기관 스위치로 꺼진 탭은 숨기고, 첫 탭은 켜진 것 중 첫째(Tabs 가 defaultValue 를 처음에만 읽어 key 로 다시 세운다)
@@ -514,12 +514,12 @@ export default function SchoolPage({ user }) {
   const has = (t) => on.includes(t);
   const [tab, setTab] = useState(admin ? 'setup' : null);
   const cur = tab && (tab === 'setup' || has(tab)) ? tab : on[0];
-  // 7단계 화면의 「직접 고치는 화면」 링크 — 학교 자료 안 탭은 여기서 옮기고, 바깥 탭(명단·특별실·자동 생성)은 윗줄 탭 단추를 눌러 옮긴다
+  // 7단계 화면의 「직접 고치는 화면」 링크 — 학교 자료 안 탭은 여기서 옮기고, 바깥 탭(명단·특별실·자동 생성)은 윗줄 탭을 바꾸는 goTab 으로 옮긴다
   const INNER = { school: 'basic', loads: 'loads', pins: 'pins' };
   const OUTER = { roster: 'roster', rooms: 'rooms', generate: 'gen' };
   const goOld = (k) => {
     if (INNER[k]) return setTab(INNER[k]);
-    document.querySelector(`[role="tab"][id$="-tab-${OUTER[k]}"]`)?.click();
+    goTab?.(OUTER[k]);
   };
   return (
     <Tabs key={cur === 'setup' ? 'setup' : on[0]} value={cur} onChange={setTab} keepMounted={false}>
