@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 import { t } from '../../shared/text/index.js';
 import { dutyFromText, loadConfig } from '../orgConfig.js';
+import { loadsSpec, pinsSpec } from './loadsImport.js';
 
 // 담임 과목 취합본 읽기 — 엑셀(.xlsx) · 한글(.hwpx). 못 읽은 줄은 버리지 않고 ok:false 로 돌려 화면이 빨강으로 보인다.
 export const TEMPLATE_HEADER = ['학년', '반', '교과', '주당 시수'];
@@ -121,8 +122,8 @@ export const rosterSpec = {
   )).rows[0].id),
 };
 
-// 되돌리기 허용 집합의 출처 — ③ 이 시수표·고정금지 스펙을 여기에 더한다
-export const EXCEL_SPECS = [rosterSpec];
+// 되돌리기 허용 집합의 출처 — 명단·시수표·고정금지(앞 둘은 loadsImport.js)
+export const EXCEL_SPECS = [rosterSpec, loadsSpec, pinsSpec];
 const allowedCols = () => new Map(EXCEL_SPECS.map((s) => [s.table, new Set([...s.cols.flatMap((c) => c.dbcols), 'deleted_at'])]));
 
 // specs·data → 엑셀. data[spec.name] = spec.rows() 결과. 맨 앞 열은 관리 번호, 지울 수 있는 시트는 맨 끝에 「지움」.
@@ -219,7 +220,7 @@ export async function applyPlans(client, orgId, userId, plans, { remove = false 
   const out = { batchId, added: 0, changed: 0, removed: 0, failed: [] };
   for (const p of plans) {
     const { table } = p.spec;
-    const dbcols = p.spec.cols.flatMap((c) => c.dbcols);
+    const dbcols = [...new Set(p.spec.cols.flatMap((c) => c.dbcols))];
     const ctx = await p.spec.context(client, orgId);
     const doRemove = p.spec.removable && (remove === true || (Array.isArray(remove) && remove.includes(p.sheet)));
     const readCol = async (id, col) => (await client.query(`SELECT ${col}::text AS v FROM ${table} WHERE id = $1`, [id])).rows[0]?.v ?? null;

@@ -20,7 +20,9 @@ export default {
     "error_intro": "빨간 칸을 고쳐서 다시 올려 주세요. 나머지 줄은 먼저 반영할 수 있어요.",
     "error_note": "{사유}\n고친 뒤 이 파일을 그대로 다시 올리면 돼요.",
     "batch_label": "엑셀 반영: {시트}",
-    "yes_mark": "○"
+    "yes_mark": "○",
+    "file_school": "시수표·고정금지.xlsx",
+    "file_marked": "오류 표시.xlsx"
   },
   "excel_err": {
     "_자리": "학교 자료 › 엑셀 올리기 › 반영 미리 보기의 줄별 오류 · 서버 오류",
@@ -36,7 +38,12 @@ export default {
     "empty_file": "파일이 비어 있어요.",
     "no_sheet": "이 파일에 「{시트}」 시트가 없어요. 내려받은 파일을 고쳐서 올려 주세요.",
     "batch_missing": "되돌릴 반영이 없어요.",
-    "batch_done": "이미 되돌린 반영이에요."
+    "batch_done": "이미 되돌린 반영이에요.",
+    "no_term": "진행 중인 학기가 없어서 넣지 못했어요.",
+    "weekday": "요일은 월·화·수·목·금·토·일 중 한 글자로 적어 주세요.",
+    "pin_target_kind": "대상 종류는 선생님·반·특별실 중에서 적어 주세요.",
+    "pin_kind": "고정·금지 칸은 「고정」 또는 「금지」로 적어 주세요.",
+    "no_batch": "되돌릴 반영 번호가 필요해요."
   },
   "excel_loads": {
     "_자리": "학교 자료 › 엑셀 내려받기·올리기 › 「시수표」 시트 머리줄",
@@ -57,6 +64,7 @@ export default {
     "weekday": "요일",
     "period": "교시",
     "kind": "고정·금지",
-    "subject": "교과(고정일 때)"
+    "subject": "교과(고정일 때)",
+    "weekdays": "월화수목금토일"
   }
 };
