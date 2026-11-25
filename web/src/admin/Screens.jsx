@@ -61,13 +61,10 @@ function Panel({ v, hint, children }) {
 // 기관 화면 탭 — 폰도 위쪽 탭 한 줄을 그대로 두고 가로로 밀어 넘긴다. 메뉴를 보여 주는 곳은 이 한 줄뿐(「내 정보」 안 나머지 메뉴 카드는 같은 메뉴를 두 번 보여 줘서 뺐다, T-1215)
 function OrgTabs({ user, admin, P, phone, tabProps, onUser, onLogout, features, loaded, setOv, jump }) {
   const edit = user.role !== '보기만';
-  const [waiting, setWaiting] = useState(0); // 가입 승인을 기다리는 건 수 — 0 이면 탭을 숨긴다
-  const countWaiting = () => { if (admin) api('GET', `/orgs/${user.orgId}/roster/approvals`).then((a) => setWaiting(a.length)).catch(() => {}); };
-  useEffect(countWaiting, []); // eslint-disable-line react-hooks/exhaustive-deps
   const onSession = () => api('GET', '/auth/session').then((r) => r.user && onUser(r.user));
   const all = [
     { v: 'roster', label: '명단', hint: '교직원 명단을 올리고 고치는 곳입니다. 처음 한 번 먼저 채웁니다', show: admin },
-    { v: 'approve', label: t('roster.approve.tab'), hint: t('roster.approve.lead'), show: admin && waiting > 0 },
+    { v: 'approve', label: t('roster.approve.tab'), hint: t('roster.approve.lead'), show: admin },
     { v: 'school', label: '학교 기본', hint: admin ? '학급·교과·시수표 같은 학교 자료를 넣는 곳입니다. 시간표를 만들기 전에 채웁니다' : '우리 학교 학급·교과 자료를 확인하는 곳입니다', show: true },
     { v: 'grid', label: admin ? '시간표 격자' : '시간표', phoneLabel: '시간표', hint: admin ? '만든 시간표를 칸마다 확인하고 직접 고칩니다' : '학교 전체 시간표를 둘러봅니다', show: true },
     { v: 'gen', label: '자동 생성', hint: '명단과 시수표를 다 넣었으면 시간표 시안을 만들어 줍니다', show: admin },
@@ -88,7 +85,7 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, onLogout, features, 
   const goSetup = (k) => { setSetupGo({ k, n: Date.now() }); setTab('school'); };
   const [want, setTab] = useState(admin && !phone ? 'roster' : admin ? 'grid' : 'mine');
   const items = visibleMenus(all, features); // 권한(show) AND 기관 스위치. 「기능 고르기」는 MENU_FEATURES 에 없어 늘 보인다
-  useEffect(() => { if (jump) { setTab(jump.v); if (jump.f) setFocus(Date.now()); if (jump.v === 'approve') countWaiting(); } }, [jump]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (jump) { setTab(jump.v); if (jump.f) setFocus(Date.now()); } }, [jump]); // eslint-disable-line react-hooks/exhaustive-deps
   // // 도움말 같은 바깥 화면이 시키는 탭 이동
   const tryGo = (v, text) => { setTab(v); setTip(text); setTimeout(() => setTip(null), 12000); };
   const on = (v) => items.some((i) => i.v === v);
@@ -114,7 +111,7 @@ function OrgTabs({ user, admin, P, phone, tabProps, onUser, onLogout, features, 
         {bar.map((i) => <Tabs.Tab key={i.v} value={i.v}>{phone && i.phoneLabel ? i.phoneLabel : i.label}{i.v === 'me' && isNew && <span data-testid="new-dot" aria-label="새 기능이 있어요" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--mantine-color-red-6)', marginLeft: 6 }} />}</Tabs.Tab>)}
       </Tabs.List>
       {on('roster') && <Panel v="roster" hint={H.roster}><Roster orgId={user.orgId} onGoSetup={admin ? goSetup : undefined} /></Panel>}
-      {on('approve') && <Panel v="approve" hint={H.approve}><Approve orgId={user.orgId} onCount={setWaiting} /></Panel>}
+      {on('approve') && <Panel v="approve" hint={H.approve}><Approve orgId={user.orgId} /></Panel>}
       {on('school') && <Panel v="school" hint={H.school}><SchoolPage user={user} goTab={setTab} focus={focus} setupGo={setupGo} /></Panel>}
       <Panel v="grid" hint={H.grid}><Grid P={P} admin={admin} /></Panel>
       {on('gen') && <Panel v="gen"><AutoGen P={P} onGoVacant={() => { setFocus(Date.now()); setTab('school'); }} /></Panel>}
