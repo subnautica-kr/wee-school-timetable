@@ -83,7 +83,8 @@ export async function setup(t, appOpts = {}) {
   await person('sys', f.orgEdu, '시스템관리자');
   // 겸임: A 에선 교직원, B 에선 관리자
   const dual = await person('dual', f.orgA, '교직원');
-  dual.midB = await addMem(f.orgB, dual.uid, '기관관리자');
+  // 겸임 표시는 쓰는 쪽이 넣는다(017 이 트리거의 「저절로 겸임」을 걷었다)
+  dual.midB = await q(`INSERT INTO membership (org_id, user_id, role, is_concurrent) VALUES ($1, $2, '기관관리자', TRUE) RETURNING id`, [f.orgB, dual.uid]);
 
   // 기관 B 자원 한 벌(남의 것 id), A 자원 조금(내 것)
   const B = {};

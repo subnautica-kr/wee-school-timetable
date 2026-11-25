@@ -137,7 +137,7 @@ test('DB: 오늘 적용 확정본 고르기 · 겸임 다른 기관 겹침 · �
   const orgB = await mkOrg('B', { grades: { 1: { periods: 2, times: times([['09:30', '10:10'], ['10:20', '11:00']]) } } });
   const u = (await pool.query(`INSERT INTO app_user (name, login_id, password_hash, must_change_password) VALUES ('겸임', $1, $2, FALSE) RETURNING id`, [`${tag}-k`, hash])).rows[0].id;
   const mA = (await pool.query(`INSERT INTO membership (org_id, user_id, role) VALUES ($1,$2,'기관관리자') RETURNING id`, [orgA, u])).rows[0].id;
-  const mB = (await pool.query(`INSERT INTO membership (org_id, user_id, role) VALUES ($1,$2,'교직원') RETURNING id`, [orgB, u])).rows[0].id;
+  const mB = (await pool.query(`INSERT INTO membership (org_id, user_id, role, is_concurrent) VALUES ($1,$2,'교직원',TRUE) RETURNING id`, [orgB, u])).rows[0].id;
   const termOf = async (o) => (await pool.query(`INSERT INTO term (org_id, year, semester) VALUES ($1, 2026, 2) RETURNING id`, [o])).rows[0].id;
   const tA = await termOf(orgA);
   const tB = await termOf(orgB);

@@ -2,6 +2,7 @@
 // 지우기는 표시 삭제(deleted_at)다. 딸린 것을 같이 지우거나 칸을 비운 것을 묶음(delete_batch) 한 번호로 적고, 그 번호로 되살린다.
 // 손대지 않는 것: audit_log(기록) · 보관 학기 자료(학기 status='보관') · 지난 날짜의 보결·예약·근태(기록).
 
+import { ROLE, MEMBER_STATUS_LOGIN } from '../shared/codes.js';
 const FUTURE = `on_date >= CURRENT_DATE`;
 // 보관 학기 자료는 건드리지 않는다 — 학기 딸린 표는 term_id 로, 칸은 시간표의 학기로 거른다($2 = 기관)
 const LIVE_TERM = `term_id NOT IN (SELECT id FROM term WHERE org_id = $2 AND status = '보관')`;
@@ -230,6 +231,15 @@ export async function restoreBatch(client, orgId, batchId) {
           WHERE x.id = ANY($1::bigint[]) AND x.org_id = $2 AND x.user_id IS NOT NULL AND x.deleted_at = (SELECT created_at FROM delete_batch WHERE id = $3)
             AND EXISTS (SELECT 1 FROM membership o WHERE o.user_id = x.user_id AND o.org_id = x.org_id AND o.deleted_at IS NULL AND o.id <> x.id)`,
         [byTable.get('membership'), orgId, b.id],
+      );
+      // 되살릴 줄이 본 소속이 되려는데 그 계정에 다른 본 소속이 있으면 겸임으로 세운다(013 트리거 대신 · T-1322b②)
+      await client.query(
+        `UPDATE membership x SET is_concurrent = TRUE
+          WHERE x.id = ANY($1::bigint[]) AND x.org_id = $2 AND x.user_id IS NOT NULL AND x.deleted_at = (SELECT created_at FROM delete_batch WHERE id = $3)
+            AND NOT x.is_concurrent AND x.status = ANY($4::text[]) AND x.role <> $5
+            AND EXISTS (SELECT 1 FROM membership o WHERE o.user_id = x.user_id AND o.id <> x.id AND o.deleted_at IS NULL AND NOT o.is_concurrent
+                          AND o.status = ANY($4::text[]) AND o.role <> $5)`,
+        [byTable.get('membership'), orgId, b.id, MEMBER_STATUS_LOGIN, ROLE.SYSADMIN],
       );
     }
     for (const [table, ids] of byTable) {

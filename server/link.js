@@ -4,7 +4,7 @@
 // 둘 다 거래(트랜잭션) 하나로 돈다. db 가 풀이면 여기서 거래를 열고, 클라이언트면 부른 쪽 거래 안에서 돈다.
 // 실패는 던지지 않고 { error: '<문구 키>' } 로 돌려준다 — 부른 길목이 fail(res, 409, error) 로 낸다.
 import { audit, killSessions } from './audit.js';
-import { ROLE, DORMANT_REASON, UNLINKED_REASON } from '../shared/codes.js';
+import { ROLE, DORMANT_REASON, UNLINKED_REASON, MEMBER_STATUS_LOGIN } from '../shared/codes.js';
 
 // 풀이면 클라이언트를 빌려 BEGIN/COMMIT, 이미 클라이언트(거래 안)면 그대로 쓴다
 export async function withTx(db, fn) {
@@ -26,13 +26,24 @@ export async function withTx(db, fn) {
 
 const UNLINKED_DAYS = 30;
 
+// 이 계정에 본 소속(겸임 아님 · 재직/휴직 · 총괄관리자 줄 빼고) 줄이 이미 있나 — exceptId 줄은 안 센다.
+// 겸임 판정은 이 함수 하나로 한다(013 트리거의 「저절로 겸임」 갈래를 017 이 걷어 냈다 · T-1322b②).
+// 연결·겸임 데려오기·재직으로 되돌리기·보관함 되살리기가 줄을 본 소속으로 세우기 전에 부른다.
+export async function hasPrimaryLine(db, userId, exceptId = null) {
+  return !!(await db.query(
+    `SELECT 1 FROM membership WHERE user_id = $1 AND id IS DISTINCT FROM $2::bigint AND deleted_at IS NULL AND NOT is_concurrent
+        AND status = ANY($3::text[]) AND role <> $4 LIMIT 1`,
+    [userId, exceptId, MEMBER_STATUS_LOGIN, ROLE.SYSADMIN],
+  )).rows[0];
+}
+
 // 연결: 명단 줄(membershipId)에 계정(userId)을 잇는다.
 // 반환 { ok: true, membershipId, userId, isConcurrent } 또는 { error }
-//   concurrent — 겸임 여부를 부른 쪽이 직접 넣는다(true/false). 안 주면 예전처럼 013 트리거가 정한다(트리거 걷기는 T-1322b②).
+//   concurrent — 겸임 여부를 부른 쪽이 직접 넣는다(true/false). 안 주면 다른 본 소속 줄이 있는지 보고 여기서 정한다(hasPrimaryLine).
 export async function linkAccount(db, { membershipId, userId, byUserId = null, concurrent = null }) {
   return withTx(db, async (c) => {
     const line = (await c.query(
-      `SELECT id, org_id, user_id, deleted_at FROM membership WHERE id = $1 FOR UPDATE`, [membershipId],
+      `SELECT id, org_id, user_id, role, status, deleted_at FROM membership WHERE id = $1 FOR UPDATE`, [membershipId],
     )).rows[0];
     if (!line || line.deleted_at) return { error: 'roster.err.line_not_found' };
     if (line.user_id != null) {
@@ -46,7 +57,9 @@ export async function linkAccount(db, { membershipId, userId, byUserId = null, c
     )).rows[0];
     if (same) return { error: 'roster.err.account_in_org' };
 
-    // 계정 칸 · 연결 시각 — 본 소속이 이미 있으면 013 트리거가 겸임으로 둔다
+    // 계정 칸 · 연결 시각 — 겸임 여부를 안 받았으면 본 소속이 이미 있을 때 겸임으로 둔다(재직·휴직 줄만 · 아니면 그대로)
+    if (concurrent == null && MEMBER_STATUS_LOGIN.includes(line.status) && line.role !== ROLE.SYSADMIN
+        && (await hasPrimaryLine(c, userId, line.id))) concurrent = true;
     const up = (await c.query(
       `UPDATE membership SET user_id = $2, linked_at = now(), linked_by = $3, is_concurrent = COALESCE($4::boolean, is_concurrent) WHERE id = $1 RETURNING is_concurrent`,
       [membershipId, userId, byUserId, concurrent],
