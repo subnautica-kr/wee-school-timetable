@@ -5,6 +5,7 @@ export const ACTION_LABEL = {
   'booking.cancel': '예약 취소', 'booking.create': '예약',
   'org.backup': '학교 자료 내려받기', 'org.concurrent-add': '겸임 추가', 'org.create': '기관 만듦', 'org.first-admin': '첫 관리자 만듦', 'org.switch': '기관 전환', 'org.update': '기관 고침', 'password.change': '비밀번호 바꿈',
   'room_lock.create': '특별실 잠금', 'room_lock.delete': '특별실 잠금 풂',
+  'special_room_group.create': '특별실 묶음 만듦', 'special_room_group.update': '특별실 묶음 고침', 'special_room_group.delete': '특별실 묶음 지움', // 문구-예외: 감사 이름표 표 자체(T-1311)
   'roster.create-line': '명단 줄 추가(계정 없이)', 'roster.status': '재직 상태 바꿈', // 문구-예외: 감사 이름표 표 자체(T-1302a①)
   'roster.excel': '명단 엑셀 반영', 'roster.excel-undo': '명단 엑셀 되돌림', 'link': '계정 연결', 'unlink': '계정 연결 해제', // 문구-예외: 감사 이름표 표 자체(F2 · 1320b·1301b 새 동작)
   'school-setup.school': '학교 기본 엑셀 반영', 'school-setup.rooms': '특별실 엑셀 반영', 'school-setup.roster': '명단 엑셀 반영(자료 넣기)', 'school-setup.loads': '시수표 엑셀 반영', 'school-setup.pins': '고정·금지 엑셀 반영', 'school-setup.undo': '자료 넣기 되돌림', // 문구-예외: 감사 이름표 표 자체(T-1308)
@@ -16,6 +17,7 @@ export const ACTION_LABEL = {
   'timetable.confirm': '시간표 확정', 'timetable.edit_confirmed': '확정본 직접 고침', 'timetable.save': '시안 저장', 'timetable.delete': '시간표 지움',
 };
 export const TABLE_LABEL = {
+  special_room_group: '특별실 묶음', // 문구-예외: 감사 이름표 표 자체(T-1311)
   app_user: '계정', attendance: '근태', booking: '예약', classroom: '반', delete_batch: '지운 묶음', special_room: '특별실', subject: '교과', membership: '명단', month_close: '근태 마감', org: '기관', room_lock: '특별실 잠금', substitute: '보결', term: '학기', timetable: '시간표',
 };
 const KEY_LABEL = {

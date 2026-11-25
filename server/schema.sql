@@ -100,6 +100,17 @@ CREATE TABLE IF NOT EXISTS special_room (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS special_room_uq ON special_room (org_id, name) WHERE deleted_at IS NULL;
 
+-- 특별실 묶음(015) — 「과학실 아무 방」. 구성원은 FK 없는 번호 배열(읽을 때 살아 있는 방만)
+CREATE TABLE IF NOT EXISTS special_room_group (
+  id         BIGSERIAL PRIMARY KEY,
+  org_id     BIGINT NOT NULL REFERENCES org(id),
+  name       TEXT NOT NULL,
+  room_ids   BIGINT[] NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS special_room_group_uq ON special_room_group (org_id, name) WHERE deleted_at IS NULL;
+
 -- ── 편성 재료 ────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS teaching_load (
   id              BIGSERIAL PRIMARY KEY,

@@ -14,6 +14,7 @@ const TABLES = {
   classroom: 'SELECT * FROM classroom WHERE org_id = $1 ORDER BY id',
   subject: 'SELECT * FROM subject WHERE org_id = $1 ORDER BY id',
   special_room: 'SELECT * FROM special_room WHERE org_id = $1 ORDER BY id',
+  special_room_group: 'SELECT * FROM special_room_group WHERE org_id = $1 ORDER BY id',
   membership: 'SELECT * FROM membership WHERE org_id = $1 ORDER BY id',
   // 사람은 org 에 안 매이지만 이 기관 소속 줄을 거쳐 이어진다(다른 기관 소속 줄은 안 건드림)
   app_user: 'SELECT * FROM app_user WHERE id IN (SELECT user_id FROM membership WHERE org_id = $1) ORDER BY id',

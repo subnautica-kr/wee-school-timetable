@@ -40,9 +40,14 @@ export function bookingRouter(pool) {
   async function warningsFor(orgId, b, levels) {
     const u = await usage(orgId, b.on_date, b.period, b.special_room_id);
     const found = [];
-    for (const l of u.lessons) found.push({ rule: 'room_overlap', detail: `그 시각에 ${l.grade}-${l.class_no} 수업이 잡혀 있습니다` });
+    // 정원(한 번에 들어가는 반 수 · 비면 1)이 남으면 수업·다른 예약이 있어도 겹침이 아니다. 잠금은 늘 겹침.
+    const capRow = (await pool.query(`SELECT capacity FROM special_room WHERE id = $1 AND org_id = $2`, [b.special_room_id, orgId])).rows[0];
+    const slots = capRow?.capacity > 0 ? capRow.capacity : 1;
+    const others = u.books.filter((x) => String(x.id) !== String(b.id));
+    const full = u.lessons.length + others.length >= slots;
+    if (full) for (const l of u.lessons) found.push({ rule: 'room_overlap', detail: `그 시각에 ${l.grade}-${l.class_no} 수업이 잡혀 있습니다` });
     for (const l of u.locks) found.push({ rule: 'room_overlap', detail: `관리자가 잠근 고정 칸입니다${l.note ? ` (${l.note})` : ''}` });
-    for (const o of u.books.filter((x) => String(x.id) !== String(b.id))) found.push({ rule: 'room_overlap', detail: `${o.name} 님이 같은 시각에 예약했습니다` });
+    if (full) for (const o of others) found.push({ rule: 'room_overlap', detail: `${o.name} 님이 같은 시각에 예약했습니다` });
     if (b.classroom_id) {
       const cap = (await pool.query(
         `SELECT c.student_count, s.capacity FROM classroom c, special_room s WHERE c.id = $1 AND s.id = $2 AND c.org_id = $3 AND s.org_id = $3`, [b.classroom_id, b.special_room_id, orgId])).rows[0];
@@ -157,7 +162,11 @@ export function bookingRouter(pool) {
           ...u.locks.filter((l) => String(l.room) === String(rm.id)).map((l) => `고정 칸 잠금${l.note ? ` (${l.note})` : ''}`),
           ...u.books.filter((b) => String(b.room) === String(rm.id)).map((b) => `${b.name} 예약`),
         ];
-        return { ...rm, free: !why.length, busy: why };
+        // 정원이 남으면(쓰는 반 수 < 정원) 수업·예약이 있어도 빈 방 — 잠금은 늘 닫힘
+        const slots = rm.capacity > 0 ? rm.capacity : 1;
+        const used = u.lessons.filter((l) => String(l.room) === String(rm.id)).length + u.books.filter((b) => String(b.room) === String(rm.id)).length;
+        const locked = u.locks.some((l) => String(l.room) === String(rm.id));
+        return { ...rm, free: !locked && used < slots, busy: why, used, slots };
       }));
     } catch (e) { next(e); }
   });

@@ -39,6 +39,7 @@ test('기관 경계(전 경로): A 세션으로 B 기관·B 자원을 두드리�
       if (r.file === 'pins.js') return B.pin;
       if (r.path.includes('/subjects/')) return B.subject;
       if (r.path.includes('/special-rooms/')) return B.room;
+      if (r.path.includes('/special-room-groups/')) return B.group;
       if (r.path.includes('/classrooms/')) return B.class;
       if (r.file === 'admin.js') return f.orgB;
     }
@@ -49,6 +50,7 @@ test('기관 경계(전 경로): A 세션으로 B 기관·B 자원을 두드리�
     'PATCH /classrooms/:id': { student_count: 5 },
     'PATCH /subjects/:id': { name: 'x' },
     'PATCH /special-rooms/:id': { name: 'x' },
+    'PATCH /special-room-groups/:id': { name: 'x' },
     'PATCH /loads/:id': { weekly_hours: 3 },
     'PATCH /specialists/:mid': { duty: null },
     'PATCH /:mid': { role: '보기만' },
@@ -92,6 +94,7 @@ test('기관 경계(전 경로): A 세션으로 B 기관·B 자원을 두드리�
     ['POST', `${oA}/loads`, { subject_id: B.subject }],
     ['POST', `${oA}/loads`, { classroom_id: B.class }],
     ['POST', `${oA}/loads`, { special_room_id: B.room }],
+    ['POST', `${oA}/loads`, { room_group_id: B.group }],
     ['POST', `${oA}/pins`, { target_kind: '반', target_id: B.class, weekday: 1, period: 1, kind: '금지' }],
     ['POST', `${oA}/pins`, { target_kind: '교사', target_id: B.mem, weekday: 1, period: 1, kind: '금지' }],
     ['POST', `${oA}/pins`, { target_kind: '특별실', target_id: B.room, weekday: 1, period: 1, kind: '금지' }],
