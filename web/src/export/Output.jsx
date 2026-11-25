@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { useOrgConfig } from '../orgConfig.js';
 import { t } from '../T.jsx';
 import { OUT_TAB_FEATURE, visibleTabs } from '../features.js';
+import SetupLink from '../school/SetupLink.jsx';
 
 // 출력 — 내려받기(PDF·엑셀·HWPX) · 급식 벽시계 · 반 비교 · 담임 과목 올리기
 export default function Output({ P, admin, onGoSetup }) {
