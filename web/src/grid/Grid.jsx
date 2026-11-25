@@ -16,6 +16,7 @@ import { roomWeek, isClash, movePreview } from '../../../shared/ttDrag.js';
 import { findById, pickOrFirst, sameId, loadPick, savePick } from './pick.js';
 import { teacherNames, teacherClashes, clashText } from './secondTeacher.js';
 import { withCurrent, markedName } from './vacant.js';
+import GridExcel from './GridExcel.jsx';
 
 const UNDO_MAX = 50;
 const GRADES = [1, 2, 3, 4, 5, 6];
@@ -270,6 +271,7 @@ function Editor({ P, tid, admin, onChanged, onDeleted }) {
           {d.timetable.status === '확정'
             ? <><Badge color="green" size="lg">확정됨{d.timetable.starts_on ? ` · ${String(d.timetable.starts_on).slice(0, 10)}부터` : ''}</Badge><Button variant="default" onClick={unconfirmTt}>확정 풀기</Button></>
             : <><TextInput type="date" label="적용 시작일" value={date} onChange={(e) => setDate(e.currentTarget.value)} /><Button color="green" disabled={!date} onClick={confirmTt}>확정</Button></>}
+          <GridExcel P={P} tid={tid} name={d.timetable.name} onDone={load} />
           <Button color="red" variant="light" onClick={deleteTt}>지우기</Button>
         </Group>
       )}
